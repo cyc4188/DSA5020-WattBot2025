@@ -1,0 +1,13 @@
+.DS_Store
+__pycache__/
+*.pyc
+.venv/
+.env
+.ipynb_checkpoints/
+
+data/raw/
+data/docs/
+data/related/pdfs/
+data/related/.seed_cache.json
+data/processed/
+outputs/
