@@ -4,6 +4,7 @@ import hashlib
 import json
 import math
 import re
+import unicodedata
 from collections import Counter, defaultdict
 from pathlib import Path
 
@@ -95,6 +96,8 @@ def build_index(metadata, docs, output):
 
 
 def tokens(text):
+    text = unicodedata.normalize("NFKC", text).replace("\u00ad", "")
+    text = re.sub(r"([A-Za-z]{2,})-\s+([a-z]{2,})", r"\1\2", text)
     return re.findall(r"[^\W_]+", text.casefold())
 
 
@@ -102,8 +105,9 @@ class SearchIndex:
     def __init__(self, path, dense=False):
         self.digest = sha256_file(path)
         data = json.loads(path.read_text(encoding="utf-8"))
-        if data["version"] != 1:
+        if data.get("version") not in (1, 2):
             raise ValueError("Rebuild the index for this version of the pipeline")
+        self.version = data["version"]
         self.sources = data["sources"]
         self.pages = data["pages"]
         self.nodes = data["nodes"]
@@ -188,5 +192,7 @@ class SearchIndex:
                 spare = max(0, max_chars - len(text))
                 start = max(0, position - spare // 2)
                 text = parent[start:start + max_chars]
+            elif node.get("kind") in ("table_row", "table_block"):
+                text = node["text"]
             expanded.append({**node, "matched_text": node["text"], "text": text})
         return expanded
