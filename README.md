@@ -251,3 +251,26 @@ Each request includes the complete extracted corpus. The output directory
 stores `corpus.txt` once and references its SHA-256 in each request event,
 alongside `config.json`, `predictions.csv`, `trace.jsonl`, and `summary.json`.
 Training runs also save `metrics.json`. All of these outputs are Git ignored.
+
+## Pi tool-using RAG
+
+The Pi experiment uses the existing competition index and the HKUST(GZ)
+DeepSeek Flash 1017 model. Python provides and validates the tools.
+`pi_rag/agent.mjs` runs the conversation in Pi Agent Core. The agent starts
+with passages retrieved by the original question and can submit a cited
+answer for the existing DeepSeek verifier to check.
+
+```bash
+npm ci --prefix pi_rag
+.venv/bin/python -m wattbot.pi_agent --mode calculator --split train --workers 6
+.venv/bin/python -m wattbot.pi_agent --mode pi --split train --workers 6
+.venv/bin/python -m scripts.verify_rag_trace --questions data/raw/train_QA.csv \
+  --trace outputs/pi-rag/pi/train/trace.jsonl --output outputs/pi-rag/pi/train/predictions.csv
+```
+
+Both variants can run a Python `Decimal` calculator with cited operands.
+The `pi` variant additionally exposes corpus search and page reading. Source
+access is limited to the competition index. Runs keep the settings,
+predictions, per-question training scores, model calls, tool arguments and
+results under `outputs/pi-rag/`. For a fresh run, choose a new
+`--output-dir`. See the [Pi experiment results](docs/wattbot-pi-rag.md).

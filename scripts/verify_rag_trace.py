@@ -2,7 +2,7 @@
 
 import argparse
 import json
-from collections import Counter
+from collections import Counter, defaultdict
 from pathlib import Path
 
 from wattbot.__main__ import atomic_csv
@@ -17,13 +17,18 @@ MODELS = {
 }
 
 
-def check_trace(trace, index, output, questions_path, metadata_path):
+def check_trace(trace, index, output, questions_path, metadata_path, limit=None):
     with index.open(encoding="utf-8") as stream:
         corpus = json.load(stream)
     nodes = {node["id"]: node for node in corpus["nodes"]}
+    page_tables = defaultdict(list)
+    for node in corpus["nodes"]:
+        if node["kind"] == "table_row":
+            page_tables[node["page_id"]].append(node["text"])
     metadata = load_metadata(metadata_path)
     columns, rows = read_csv(output)
     _, questions = read_csv(questions_path)
+    questions = questions[:limit]
     validate_rows(columns, rows, questions, metadata)
     by_question = {row["id"]: row for row in rows}
     selected = {}
@@ -63,8 +68,17 @@ def check_trace(trace, index, output, questions_path, metadata_path):
                 if event["supported"]:
                     candidate = selected[(question_id, event["attempt"])]
                     for citation in candidate["citations"]:
-                        node = nodes[citation["node_id"]]
-                        source = corpus["pages"][node["page_id"]]
+                        node_id = citation["node_id"]
+                        if node_id in corpus["pages"]:
+                            ref_id, page = node_id.rsplit(":p", 1)
+                            source = corpus["pages"][node_id]
+                            if page_tables[node_id]:
+                                source += "\nEXTRACTED TABLE ROWS\n" + "\n".join(page_tables[node_id])
+                            node = {"ref_id": ref_id, "page": int(page), "text": source[:10000]}
+                            source = node["text"]
+                        else:
+                            node = nodes[node_id]
+                            source = corpus["pages"][node["page_id"]]
                         if (citation["ref_id"], citation["page"]) != (node["ref_id"], node["page"]):
                             raise ValueError(f"Incorrect citation metadata for {question_id}")
                         if citation["quote"] not in node["text"] and citation["quote"] not in source:
@@ -101,15 +115,19 @@ def main():
                         default=ROOT / "data" / "processed" / "wattbot-index.json")
     parser.add_argument("--questions", type=Path, default=ROOT / "data" / "raw" / "test_Q.csv")
     parser.add_argument("--metadata", type=Path, default=ROOT / "data" / "raw" / "metadata.csv")
+    parser.add_argument("--limit", type=int, help="Verify only the given prefix of the question file")
     parser.add_argument("--canonical-output", type=Path,
                         help="Write canonical answer values after verifying the source CSV and trace")
     args = parser.parse_args()
-    summary = check_trace(args.trace, args.index, args.output, args.questions, args.metadata)
+    if args.limit is not None and args.limit < 1:
+        parser.error("--limit must be positive")
+    summary = check_trace(args.trace, args.index, args.output, args.questions, args.metadata, args.limit)
     if args.canonical_output:
         if args.canonical_output.resolve() in {args.output.resolve(), args.trace.resolve()}:
             raise ValueError("Choose a separate canonical output path")
         _, rows = read_csv(args.output)
         _, questions = read_csv(args.questions)
+        questions = questions[:args.limit]
         canonical_rows = [submission_fields(question, row)
                           for question, row in zip(questions, rows, strict=True)]
         changes = [

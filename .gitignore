@@ -11,3 +11,5 @@ data/related/pdfs/
 data/related/.seed_cache.json
 data/processed/
 outputs/
+
+node_modules/
