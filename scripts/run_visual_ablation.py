@@ -4,6 +4,7 @@
 import argparse
 import csv
 import hashlib
+import io
 import json
 import subprocess
 import sys
@@ -13,6 +14,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from wattbot.evaluation import evaluate  # noqa: E402
 from wattbot.multimodal import summarize_trace_usage  # noqa: E402
+from wattbot.pipeline import (  # noqa: E402
+    BLANK, COLUMNS, FALLBACK_ANSWER, load_metadata, read_csv, validate_rows)
+from wattbot.retrieval import sha256_file, write_json  # noqa: E402
 
 MODES = ("text-only", "mode2-only")
 QUESTION_COLUMNS = ("id", "question", "answer_unit")
@@ -21,14 +25,7 @@ LABEL_COLUMNS = ("id", "answer_value", "ref_id", "ref_url",
 ESCALATION_REASON = "rag_abstained"
 DEFAULT_MODEL = "DeepSeek-V4.1-Flash"
 DEFAULT_PROVIDER = "hkustgz-aigc"
-
-
-def sha256_file(path):
-    digest = hashlib.sha256()
-    with Path(path).open("rb") as stream:
-        for chunk in iter(lambda: stream.read(1 << 20), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
+MANIFEST_NAME = "input_manifest.json"
 
 
 def find_project_root(start):
@@ -41,20 +38,31 @@ def find_project_root(start):
 
 def read_jsonl(path):
     records = []
-    for line in Path(path).read_text(encoding="utf-8").splitlines():
+    for number, line in enumerate(
+            Path(path).read_text(encoding="utf-8").splitlines(), 1):
         line = line.strip()
         if not line:
             continue
         try:
             records.append(json.loads(line))
-        except json.JSONDecodeError:
-            continue
+        except json.JSONDecodeError as error:
+            raise ValueError(
+                f"Malformed JSON in {path}:{number}: {error}") from error
     return records
 
 
 def read_rows(path):
-    with Path(path).open(encoding="utf-8-sig", newline="") as stream:
-        return list(csv.DictReader(stream))
+    _, rows = read_csv(path)
+    return rows
+
+
+def rows_to_csv_text(columns, rows):
+    stream = io.StringIO(newline="")
+    writer = csv.DictWriter(stream, fieldnames=list(columns),
+                            extrasaction="ignore")
+    writer.writeheader()
+    writer.writerows(rows)
+    return stream.getvalue()
 
 
 def write_rows(path, columns, rows):
@@ -62,20 +70,54 @@ def write_rows(path, columns, rows):
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_suffix(path.suffix + ".tmp")
     with temporary.open("w", encoding="utf-8", newline="") as stream:
-        writer = csv.DictWriter(stream, fieldnames=list(columns),
-                                extrasaction="ignore")
-        writer.writeheader()
-        writer.writerows(rows)
+        stream.write(rows_to_csv_text(columns, rows))
     temporary.replace(path)
 
 
-def write_json(path, data):
-    path = Path(path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_suffix(path.suffix + ".tmp")
-    temporary.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n",
-                         encoding="utf-8")
-    temporary.replace(path)
+def file_entry(path):
+    return {"path": str(Path(path).resolve()), "sha256": sha256_file(path)}
+
+
+def build_input_manifest(args, subset_sha256):
+    return {
+        "schema": 1,
+        "source_questions": file_entry(args.questions_source),
+        "source_trace": file_entry(args.trace),
+        "index": file_entry(args.index),
+        "metadata": file_entry(args.metadata),
+        "catalog": file_entry(args.catalog),
+        "subset": {"path": str(Path(args.questions).resolve()),
+                   "sha256": subset_sha256},
+        "model": {"vlm_model": args.model, "provider": args.provider},
+        "settings": {
+            "top_k": args.top_k,
+            "max_images": args.max_images,
+            "dpi": args.dpi,
+            "workers": 1,
+            "hybrid_retrieval": False,
+        },
+    }
+
+
+def check_output_manifest(output_dir):
+    output_dir = Path(output_dir)
+    if not (output_dir.exists() and any(output_dir.iterdir())):
+        return None
+    manifest_path = output_dir / MANIFEST_NAME
+    if not manifest_path.is_file():
+        raise FileExistsError(
+            f"Refusing legacy/non-empty output directory without "
+            f"{MANIFEST_NAME}: {output_dir}")
+    try:
+        return json.loads(manifest_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as error:
+        raise ValueError(f"Malformed {manifest_path}: {error}") from error
+
+
+def write_fresh_manifest(output_dir, manifest):
+    output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    write_json(output_dir / MANIFEST_NAME, manifest)
 
 
 def derive_abstention_ids(trace_path):
@@ -129,29 +171,50 @@ def expected_config(args, mode):
     }
 
 
-def arm_status(output_dir, expected, expected_rows):
+def completed_output_sha256(trace_path):
+    completes = [record for record in read_jsonl(trace_path)
+                 if record.get("event") == "run_complete"]
+    if len(completes) != 1:
+        return None
+    value = completes[0].get("output_sha256")
+    return value if isinstance(value, str) and value else None
+
+
+def arm_status(output_dir, expected, manifest, questions, metadata):
     output_dir = Path(output_dir)
     predictions = output_dir / "predictions.csv"
     config_path = output_dir / "config.json"
     trace_path = output_dir / "trace.jsonl"
+    manifest_path = output_dir / MANIFEST_NAME
     if not (predictions.is_file() and config_path.is_file()
-            and trace_path.is_file()):
+            and trace_path.is_file() and manifest_path.is_file()):
         return "incomplete", None
     try:
         config = json.loads(config_path.read_text(encoding="utf-8"))
+        existing_manifest = json.loads(
+            manifest_path.read_text(encoding="utf-8"))
     except json.JSONDecodeError:
         return "incomplete", None
+    if existing_manifest != manifest:
+        return "manifest_mismatch", config
     if config != expected:
         return "config_mismatch", config
-    rows = read_rows(predictions)
-    if len(rows) != expected_rows:
+    columns, rows = read_csv(predictions)
+    try:
+        validate_rows(columns, rows, questions, metadata)
+    except ValueError:
+        return "invalid_rows", config
+    recorded = completed_output_sha256(trace_path)
+    if recorded is None:
         return "incomplete", config
+    if recorded != sha256_file(predictions):
+        return "output_hash_mismatch", config
     return "complete", config
 
 
-def prepare_arm_dir(output_dir, expected, expected_rows, force):
+def prepare_arm_dir(output_dir, expected, manifest, questions, metadata, force):
     output_dir = Path(output_dir)
-    status, _ = arm_status(output_dir, expected, expected_rows)
+    status, _ = arm_status(output_dir, expected, manifest, questions, metadata)
     if status == "complete":
         return "reuse"
     if output_dir.exists() and any(output_dir.iterdir()):
@@ -164,6 +227,7 @@ def prepare_arm_dir(output_dir, expected, expected_rows, force):
         target = backups / f"{output_dir.name}-{sha256_file_path(output_dir)}"
         output_dir.rename(target)
     output_dir.mkdir(parents=True, exist_ok=True)
+    write_json(output_dir / MANIFEST_NAME, manifest)
     return "run"
 
 
@@ -202,10 +266,11 @@ def ensure_catalog(args, repo_root):
     return catalog
 
 
-def run_arm(args, mode, repo_root):
+def run_arm(args, mode, repo_root, manifest, questions, metadata):
     output_dir = args.output_dir / "arms" / mode
     expected = expected_config(args, mode)
-    action = prepare_arm_dir(output_dir, expected, args.cohort_size, args.force)
+    action = prepare_arm_dir(
+        output_dir, expected, manifest, questions, metadata, args.force)
     if action == "reuse":
         return {"mode": mode, "action": "reuse", "output_dir": str(output_dir)}
     command = [
@@ -227,20 +292,17 @@ def run_arm(args, mode, repo_root):
     ]
     run_command(command, cwd=repo_root,
                 log_path=args.output_dir / "logs" / f"{mode}.log")
-    status, _ = arm_status(output_dir, expected, args.cohort_size)
+    status, _ = arm_status(
+        output_dir, expected, manifest, questions, metadata)
     if status != "complete":
         raise RuntimeError(f"Arm {mode} finished in unexpected state {status}")
     return {"mode": mode, "action": "run", "output_dir": str(output_dir)}
 
 
-def load_arm_predictions(output_dir, cohort_ids):
-    rows = read_rows(Path(output_dir) / "predictions.csv")
-    by_id = {row["id"]: row for row in rows}
-    missing = [question_id for question_id in cohort_ids
-               if question_id not in by_id]
-    if missing:
-        raise ValueError(f"Predictions missing cohort IDs: {missing}")
-    return [by_id[question_id] for question_id in cohort_ids]
+def load_arm_predictions(output_dir, questions, metadata):
+    columns, rows = read_csv(Path(output_dir) / "predictions.csv")
+    validate_rows(columns, rows, questions, metadata)
+    return rows
 
 
 def score_arm(predictions, labels):
@@ -304,12 +366,10 @@ def routing_summary(trace_path, mode):
 
 
 def build_parser():
-    here = Path(__file__).resolve().parents[1]
-    default_project = find_project_root(here)
     parser = argparse.ArgumentParser(
         description="Paired text-only versus mode2-only visual ablation")
-    parser.add_argument("--project", type=Path, default=default_project)
-    parser.add_argument("--trace", type=Path)
+    parser.add_argument("--project", type=Path)
+    parser.add_argument("--trace", type=Path, required=True)
     parser.add_argument("--questions-source", type=Path)
     parser.add_argument("--output-dir", type=Path)
     parser.add_argument("--model", default=DEFAULT_MODEL)
@@ -327,23 +387,19 @@ def build_parser():
 
 
 def resolve_args(args):
-    project = Path(args.project).resolve()
+    project = (Path(args.project).resolve() if args.project
+               else find_project_root(Path(__file__).resolve().parents[1]))
     args.project = project
     args.questions_source = (
         args.questions_source or project / "data" / "raw" / "train_QA.csv")
     args.output_dir = (
         args.output_dir or project / "outputs" / "wattbot-final" / "ablation")
-    args.trace = (
-        args.trace or project / "outputs" / "integration-cascade" / "train"
-        / "trace.jsonl")
     args.index = args.index or project / "data" / "processed" / "wattbot-index.json"
     args.metadata = args.metadata or project / "data" / "raw" / "metadata.csv"
     args.docs = args.docs or project / "data" / "docs"
     args.catalog = args.catalog or args.output_dir / "catalog.json"
     args.figure_notes = (
         args.figure_notes or project / "data" / "processed" / "figure_notes.json")
-    args.questions = args.output_dir / "questions.csv"
-    args.labels = args.output_dir / "labels.local.csv"
     for key in ("questions_source", "output_dir", "trace", "index", "metadata",
                 "docs", "catalog", "figure_notes"):
         setattr(args, key, Path(getattr(args, key)).resolve())
@@ -359,20 +415,31 @@ def resolve_args(args):
 def main(argv=None):
     args = resolve_args(build_parser().parse_args(argv))
     repo_root = Path(__file__).resolve().parents[1]
-    args.output_dir.mkdir(parents=True, exist_ok=True)
+    existing_manifest = check_output_manifest(args.output_dir)
 
     cohort_ids = derive_abstention_ids(args.trace)
     source_rows = read_rows(args.questions_source)
     questions, labels = build_cohort(source_rows, cohort_ids)
-    write_rows(args.questions, QUESTION_COLUMNS, questions)
-    write_rows(args.labels, LABEL_COLUMNS, labels)
+    subset_bytes = rows_to_csv_text(QUESTION_COLUMNS, questions).encode("utf-8")
     args.cohort_size = len(questions)
 
     args.catalog = ensure_catalog(args, repo_root)
+    metadata = load_metadata(args.metadata)
+    manifest = build_input_manifest(
+        args, hashlib.sha256(subset_bytes).hexdigest())
+    if existing_manifest is None:
+        write_fresh_manifest(args.output_dir, manifest)
+    elif existing_manifest != manifest:
+        raise ValueError(
+            f"Input manifest mismatch for existing output directory: "
+            f"{args.output_dir}")
+    write_rows(args.questions, QUESTION_COLUMNS, questions)
+    write_rows(args.labels, LABEL_COLUMNS, labels)
 
     arm_runs = []
     for mode in MODES:
-        arm_runs.append(run_arm(args, mode, repo_root))
+        arm_runs.append(run_arm(
+            args, mode, repo_root, manifest, questions, metadata))
 
     scores = {}
     routing = {}
@@ -380,7 +447,7 @@ def main(argv=None):
     per_arm = {}
     for mode in MODES:
         output_dir = args.output_dir / "arms" / mode
-        predictions = load_arm_predictions(output_dir, cohort_ids)
+        predictions = load_arm_predictions(output_dir, questions, metadata)
         metrics = score_arm(predictions, labels)
         per_arm[mode] = metrics
         trace_path = output_dir / "trace.jsonl"
@@ -408,6 +475,9 @@ def main(argv=None):
 
     repro = {
         "project": str(args.project),
+        "input_manifest": {
+            "path": str(args.output_dir / MANIFEST_NAME),
+            "sha256": sha256_file(args.output_dir / MANIFEST_NAME)},
         "trace": {"path": str(args.trace), "sha256": sha256_file(args.trace)},
         "questions": {"path": str(args.questions),
                       "sha256": sha256_file(args.questions)},
