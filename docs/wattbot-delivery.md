@@ -25,7 +25,39 @@ WattBot 根据 32 份能源、碳排放和可持续性相关文档回答问题�
   --metrics outputs/reproduction/train/metrics.json
 ```
 
-生成测试提交时使用 `data/raw/test_Q.csv`，并选择独立的输出和 trace 路径。中断后用同一配置和 trace 加 `--resume`，已完成的题会从 trace 恢复。预测、文档、索引和 trace 都留在 Git 忽略目录。
+测试提交和独立验收命令如下。中断后用同一配置和 trace 加 `--resume`，已完成的题会从 trace 恢复。预测、文档、索引和 trace 都留在 Git 忽略目录。
+
+```bash
+.venv/bin/python -m wattbot cascade --questions data/raw/test_Q.csv --workers 3 \
+  --output outputs/reproduction/test/submission.csv \
+  --trace outputs/reproduction/test/trace.jsonl
+.venv/bin/python -m scripts.verify_cascade_delivery \
+  --questions data/raw/test_Q.csv --metadata data/raw/metadata.csv \
+  --index outputs/parser-fix/wattbot-index-v2.json \
+  --visual-index data/processed/wattbot-index.json \
+  --predictions outputs/reproduction/test/submission.csv \
+  --trace outputs/reproduction/test/trace.jsonl \
+  --output outputs/reproduction/test/acceptance.json
+```
+
+## 全量交付验收
+
+2026 年 11 月 20 日用冻结的推理代码 `c17c822` 在校园 API 上完成全部 282 道测试题。运行使用清洗 v2、后备 v1、BM25、top-k 10 和三个 worker，所有题都在一次运行中完成。
+
+| 实际运行结果 | 数量 |
+| --- | ---: |
+| 文本阶段直接作答 | 241 |
+| 进入多模态后备 | 41 |
+| 多模态后备返回答案 | 18 |
+| 最终有引用的答案 | 259 |
+| 最终规范拒答 | 23 |
+| 总 tokens | 4,312,414 |
+| 平均 tokens/题 | 15,292 |
+
+验收逐行核对题目 ID、顺序、引用格式、拒答字段和 trace 中的最终行。两份索引、问题文件和最终 CSV 的哈希都与 trace 记录一致。所有多模态请求都发生在第一阶段拒答之后，API 和问题级错误均为 0。测试题没有本地答案标签，因此这里报告覆盖、路由和成本。
+
+- 交付 CSV 位于 `outputs/wattbot-final/candidate/submission.csv`。其 SHA-256 为 `006a28dedea4d1a1216c0ebd91ae9372a417b21c3271509d4e3e13a316aa2222`。
+- 完整运行记录位于同目录的 `trace.jsonl`。独立验收结果位于 `outputs/wattbot-final/acceptance/`。
 
 ## 实验口径
 
@@ -98,6 +130,12 @@ WattBot 根据 32 份能源、碳排放和可持续性相关文档回答问题�
 | 文本加按需读图 | 3/5 | 2 | 0.6000 | 200,823 | 35 |
 
 两组都正确拒答了 2 道不可回答题。启用视觉路径后有 1 道题由错转对，其余 4 道的加权分相同。这个对照只覆盖预先按文本拒答筛出的 5 道题，每种配置运行一次。完整消融结果和各组 trace 位于本地 `outputs/wattbot-final/ablation/`。
+
+```bash
+.venv/bin/python -m scripts.run_visual_ablation \
+  --trace outputs/integration-cascade/train/trace.jsonl \
+  --output-dir outputs/reproduction/visual-ablation
+```
 
 ## 课程论文可用材料
 
