@@ -212,6 +212,31 @@ required abstention. For a completed older trace, pass
 command. This produces a separate CSV and a normalization audit without
 re-running inference.
 
+## Clean-index RAG with multimodal fallback
+
+`wattbot cascade` runs text RAG on the clean v2 index. If text RAG abstains,
+the question goes to the multimodal solver in `mode2-only`, which can inspect
+the retrieved PDF pages when its text pass cannot answer. The multimodal solver
+uses the original v1 index. The command validates the final CSV against the input
+question order, source metadata, and the required abstention fields.
+
+```bash
+.venv/bin/python -m pip install -r requirements-rag.txt
+.venv/bin/python -m wattbot index
+.venv/bin/python -m wattbot.clean_index
+.venv/bin/python -m wattbot cascade --questions data/raw/train_QA.csv --workers 2 \
+  --output outputs/integration-cascade/train/predictions.csv \
+  --trace outputs/integration-cascade/train/trace.jsonl
+.venv/bin/python -m wattbot score --output outputs/integration-cascade/train/predictions.csv
+```
+
+Omit `--questions` to use the test split. Use `--index` for the clean v2 index
+and `--visual-index` for the v1 index when they are stored elsewhere. The
+multimodal stage defaults to the campus OpenCode provider and DeepSeek V4.1
+Flash. After an interruption, repeat the same command with `--resume` to reuse
+completed rows. Inspect `cascade_route` and the `pipeline_stage` field in the
+trace to audit which questions reached the multimodal solver.
+
 ## Direct LLM baseline
 
 The closed-book baseline lives in `wattbot/baselines/direct.py`. It uses the

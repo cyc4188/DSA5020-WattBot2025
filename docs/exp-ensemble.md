@@ -184,3 +184,29 @@ and tables, all per-system prediction CSVs and traces, consensus/cascade diagnos
 **Verification:** 29/29 unit tests pass — 15 new tests in `tests/test_ensemble.py` covering
 interval normalization, equivalence clustering, weighting, quorum, reconciliation, cascade
 triggers and Pareto ranking, plus the 14 pre-existing tests.
+
+## 6. Live clean-index RAG with multimodal fallback
+
+The [cascade CLI](../README.md#clean-index-rag-with-multimodal-fallback) runs
+clean v2 RAG on every question and runs the v1 multimodal solver in
+`mode2-only` on RAG abstentions. The November 20, 2026 campus API run used
+DeepSeek-V4.1-Flash, BM25, top-k 10, and two workers.
+
+| 41-question evaluation | Correct values | Citation Jaccard | False abstentions | Weighted score | Tokens/question |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Text RAG stage of the live run | 33 | 0.8659 | 3 | 0.8262 | 9,301 |
+| **Live cascade** | **34** | **0.8902** | **1** | **0.8530** | **13,801** |
+| Cascade replay with previously saved predictions and traces | 35 | 0.9431 | 0 | 0.8817 | 14,077 |
+
+Trace audit found five questions routed to the multimodal solver and confirmed
+that all multimodal requests belonged to those five questions. The solver sent
+30 page images across its answer and verification calls and returned two
+additional answers, one with a correct value. All 41 final rows passed
+schema, question order, reference, and abstention-field validation. The live
+run used 381,336 text-stage tokens and 184,488 multimodal-stage tokens.
+
+Local artifacts are in `outputs/integration-cascade/train/` (predictions,
+trace, metrics, and summary) and `outputs/integration-cascade/replay/`
+(replayed predictions and diagnostics). Both scores are local training-set
+results. The live comparison measures the full fallback solver, including
+its own text pass and image requests.

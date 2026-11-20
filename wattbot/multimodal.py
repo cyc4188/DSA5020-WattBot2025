@@ -27,6 +27,7 @@ from wattbot.retrieval import SearchIndex, sha256_file, tokens, write_json
 
 DEFAULT_PROVIDER = "hkustgz-aigc"
 DEFAULT_VLM_MODEL = "DeepSeek-V4.1-Flash"
+PAGE_RENDER_LOCK = threading.Lock()
 PROBE_TARGETS = [
     ("hkustgz-aigc", "Qwen3.8-27B"),
     ("hkustgz-aigc", "Kimi-K3"),
@@ -380,7 +381,7 @@ def render_page_png(pdf_path, page_number, *, dpi=180, max_dim=1800):
     import pymupdf
     from PIL import Image
 
-    with pymupdf.open(pdf_path) as document:
+    with PAGE_RENDER_LOCK, pymupdf.open(pdf_path) as document:
         page = document.load_page(page_number - 1)
         pixmap = page.get_pixmap(dpi=dpi)
         png = pixmap.tobytes("png")

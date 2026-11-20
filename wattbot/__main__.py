@@ -17,6 +17,7 @@ ROOT = Path(__file__).resolve().parents[1]
 DATA = ROOT / "data"
 DEFAULT_INDEX = DATA / "processed" / "wattbot-index.json"
 DEFAULT_OUTPUT = ROOT / "outputs"
+DEFAULT_CLEAN_INDEX = DEFAULT_OUTPUT / "parser-fix" / "wattbot-index-v2.json"
 
 
 def atomic_csv(path, rows):
@@ -30,10 +31,12 @@ def atomic_csv(path, rows):
 
 
 def generate(args, metadata, questions):
+    cascade = args.command == "cascade"
+    produces_rows = args.command in {"run", "cascade"}
     if args.workers < 1:
         raise ValueError("--workers must be positive")
-    if args.resume and args.command != "run":
-        raise ValueError("--resume is available for run only")
+    if args.resume and not produces_rows:
+        raise ValueError("--resume is available for run and cascade only")
     if args.top_k < 1 or (args.limit is not None and args.limit < 1):
         raise ValueError("--top-k and --limit must be positive")
     if args.output.resolve() == args.trace.resolve():
@@ -54,6 +57,17 @@ def generate(args, metadata, questions):
         "code_sha256": {path.name: sha256_file(path)
                         for path in sorted(Path(__file__).parent.glob("*.py"))},
     }
+    if cascade:
+        from .cascade import solve_cascade, visual_fallback
+
+        manifest["visual_fallback"] = {
+            "index_sha256": sha256_file(args.visual_index),
+            "docs": str(args.docs.resolve()),
+            "provider": args.vision_provider,
+            "model": args.vlm_model,
+            "mode": "mode2-only",
+        }
+        fallback = visual_fallback(args, metadata)
     rows = {}
     if args.resume:
         with args.trace.open(encoding="utf-8") as previous:
@@ -84,7 +98,7 @@ def generate(args, metadata, questions):
         else:
             emit("run_start", **manifest)
         try:
-            client = DeepSeek(args.backend) if args.command == "run" else None
+            client = DeepSeek(args.backend) if produces_rows else None
             if client:
                 emit("model_config", requested_model=client.model,
                      checkpoint="DeepSeek-V4.1-Flash-1017",
@@ -100,8 +114,12 @@ def generate(args, metadata, questions):
 
             emit("question_start", question_id=question["id"], question=question["question"])
             if client:
-                row = solve(question, index, client, record, args.top_k)
-                validate_rows(COLUMNS, [row], [question], metadata)
+                if cascade:
+                    row = solve_cascade(question, index, client, record, args.top_k,
+                                        metadata, fallback)
+                else:
+                    row = solve(question, index, client, record, args.top_k)
+                    validate_rows(COLUMNS, [row], [question], metadata)
                 record("row", row=row)
                 return row
             candidates = index.search([question["question"]], args.top_k)
@@ -148,22 +166,30 @@ def main():
     build = commands.add_parser("index")
     build.add_argument("--docs", type=Path, default=DATA / "docs")
     build.add_argument("--index", type=Path, default=DEFAULT_INDEX)
-    for name in ("run", "retrieve", "verify", "score"):
-        command = commands.add_parser(name)
+    for name in ("run", "cascade", "retrieve", "verify", "score"):
+        help_text = "Run clean-index RAG with a multimodal fallback" if name == "cascade" else None
+        command = commands.add_parser(name, help=help_text)
         filename = "train_QA.csv" if name == "score" else "test_Q.csv"
         command.add_argument("--questions", type=Path, default=DATA / "raw" / filename)
-        command.add_argument("--output", type=Path, default=DEFAULT_OUTPUT / "submission_rag.csv")
-        if name in {"run", "retrieve"}:
+        output = "submission_cascade.csv" if name == "cascade" else "submission_rag.csv"
+        command.add_argument("--output", type=Path, default=DEFAULT_OUTPUT / output)
+        if name in {"run", "cascade", "retrieve"}:
             timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
             command.add_argument("--trace", type=Path,
                                  default=DEFAULT_OUTPUT / f"{name}-{timestamp}.jsonl")
-            command.add_argument("--index", type=Path, default=DEFAULT_INDEX)
+            index = DEFAULT_CLEAN_INDEX if name == "cascade" else DEFAULT_INDEX
+            command.add_argument("--index", type=Path, default=index)
             command.add_argument("--top-k", type=int, default=10)
             command.add_argument("--limit", type=int)
             command.add_argument("--workers", type=int, default=1)
             command.add_argument("--resume", action="store_true")
             command.add_argument("--hybrid", action="store_true")
             command.add_argument("--backend", choices=("hkustgz", "openrouter"), default="hkustgz")
+            if name == "cascade":
+                command.add_argument("--visual-index", type=Path, default=DEFAULT_INDEX)
+                command.add_argument("--docs", type=Path, default=DATA / "docs")
+                command.add_argument("--vlm-model", default="DeepSeek-V4.1-Flash")
+                command.add_argument("--vision-provider", default="hkustgz-aigc")
         elif name == "score":
             command.add_argument("--metrics", type=Path)
     args = parser.parse_args()
@@ -173,7 +199,7 @@ def main():
         print(f"Wrote {count} index nodes to {args.index}")
         return
     _, questions = read_csv(args.questions)
-    if args.command in {"run", "retrieve"}:
+    if args.command in {"run", "cascade", "retrieve"}:
         generate(args, metadata, questions)
         return
     columns, rows = read_csv(args.output)
