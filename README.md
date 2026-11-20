@@ -214,6 +214,9 @@ re-running inference.
 
 ## Clean-index RAG with multimodal fallback
 
+The [system and experiment record](docs/wattbot-delivery.md) describes the
+inference stages, evaluation protocol, and historical alternatives.
+
 `wattbot cascade` runs text RAG on the clean v2 index. If text RAG abstains,
 the question goes to the multimodal solver in `mode2-only`, which can inspect
 the retrieved PDF pages when its text pass cannot answer. The multimodal solver
