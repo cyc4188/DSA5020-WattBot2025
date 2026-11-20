@@ -10,6 +10,9 @@ from wattbot.retrieval import sha256_file
 
 EVIDENCE_FIELDS = ("answer_value", "answer_unit", "ref_id", "ref_url", "supporting_materials")
 MANIFEST_EVENTS = {"run_start", "model_config", "run_resume", "run_complete", "run_error"}
+MODEL_EVENTS = {"llm_request", "llm_response", "llm_http_error", "llm_network_error",
+                "llm_response_error"}
+PIPELINE_STAGES = {"rag", "multimodal"}
 
 
 def _fail(message):
@@ -52,6 +55,7 @@ def check_trace(trace, predictions, questions_path, metadata_path, index, visual
     row_events = {}
     attempts_by_question = {}
     active = {}
+    starts = set()
     attempts = 0
     failed_attempts = 0
     resumes = 0
@@ -59,6 +63,7 @@ def check_trace(trace, predictions, questions_path, metadata_path, index, visual
     results = Counter()
     stage_calls = Counter()
     stage_detail = Counter()
+    stage_usage = {}
     usage = Counter()
     usage_missing = 0
 
@@ -101,6 +106,7 @@ def check_trace(trace, predictions, questions_path, metadata_path, index, visual
                     _fail(f"Unexpected question_id on {name}")
                 if name == "run_resume":
                     resumes += 1
+                    starts.clear()
                     if event.get("completed_rows") != len(row_events):
                         _fail("run_resume completed_rows differs from observed rows")
                 elif name == "run_complete":
@@ -117,6 +123,9 @@ def check_trace(trace, predictions, questions_path, metadata_path, index, visual
             if name == "question_start":
                 if question_id in row_events:
                     _fail(f"Question {question_id} restarted after a completed row")
+                if question_id in starts:
+                    _fail(f"Duplicate question_start for {question_id} before run_resume")
+                starts.add(question_id)
                 previous = active.get(question_id)
                 if previous is not None and previous["row"] is None:
                     previous["failed"] = True
@@ -128,6 +137,8 @@ def check_trace(trace, predictions, questions_path, metadata_path, index, visual
                     "result": None,
                     "row": None,
                     "failed": False,
+                    "rag_requests": 0,
+                    "multimodal_requests": 0,
                     "multimodal_events": 0,
                 }
                 attempts_by_question.setdefault(question_id, []).append(attempt)
@@ -147,32 +158,46 @@ def check_trace(trace, predictions, questions_path, metadata_path, index, visual
                 continue
 
             stage = event.get("pipeline_stage")
+            if name in MODEL_EVENTS and stage not in PIPELINE_STAGES:
+                _fail(f"{name} for {question_id} lacks a rag or multimodal pipeline_stage")
             if stage == "multimodal":
                 if attempt["route"] is None or not attempt["route"]["escalated"]:
                     _fail(f"Multimodal event before an escalated route for {question_id}")
                 if attempt["result"] is not None:
                     _fail(f"Multimodal event after cascade_result for {question_id}")
                 attempt["multimodal_events"] += 1
+                if name == "llm_request":
+                    attempt["multimodal_requests"] += 1
             elif stage == "rag" and attempt["route"] is not None:
                 _fail(f"RAG event after cascade_route for {question_id}")
+            elif stage == "rag" and name == "llm_request":
+                attempt["rag_requests"] += 1
 
             if name == "llm_response":
                 stage_calls[stage] += 1
                 stage_detail[f"{stage}/{event.get('stage')}"] += 1
                 payload = event.get("usage")
-                if not isinstance(payload, dict):
+                if not isinstance(payload, dict) or payload.get("total_tokens") is None:
                     usage_missing += 1
-                else:
-                    usage["prompt_tokens"] += payload.get("prompt_tokens") or 0
-                    usage["completion_tokens"] += payload.get("completion_tokens") or 0
-                    usage["total_tokens"] += payload.get("total_tokens") or 0
+                if isinstance(payload, dict):
+                    totals = stage_usage.setdefault(stage, Counter())
+                    for key in ("prompt_tokens", "completion_tokens", "total_tokens"):
+                        value = payload.get(key) or 0
+                        usage[key] += value
+                        totals[key] += value
                     details = payload.get("completion_tokens_details") or {}
-                    usage["reasoning_tokens"] += details.get("reasoning_tokens") or 0
+                    reasoning = details.get("reasoning_tokens") or 0
+                    usage["reasoning_tokens"] += reasoning
+                    totals["reasoning_tokens"] += reasoning
                     prompt_details = payload.get("prompt_tokens_details") or {}
-                    usage["cached_tokens"] += prompt_details.get("cached_tokens") or 0
+                    cached = prompt_details.get("cached_tokens") or 0
+                    usage["cached_tokens"] += cached
+                    totals["cached_tokens"] += cached
             elif name == "cascade_route":
                 if attempt["route"] is not None:
                     _fail(f"Duplicate cascade_route for {question_id}")
+                if not attempt["rag_requests"]:
+                    _fail(f"cascade_route without a RAG llm_request for {question_id}")
                 escalated = event.get("escalated")
                 if not isinstance(escalated, bool):
                     _fail(f"Non-boolean cascade_route.escalated for {question_id}")
@@ -188,6 +213,8 @@ def check_trace(trace, predictions, questions_path, metadata_path, index, visual
                     _fail(f"cascade_result on non-escalated question {question_id}")
                 if attempt["result"] is not None:
                     _fail(f"Duplicate cascade_result for {question_id}")
+                if not attempt["multimodal_requests"]:
+                    _fail(f"cascade_result without a multimodal llm_request for {question_id}")
                 selected = event.get("selected")
                 if selected not in {"abstention", "multimodal"}:
                     _fail(f"Invalid cascade_result.selected for {question_id}")
@@ -208,11 +235,16 @@ def check_trace(trace, predictions, questions_path, metadata_path, index, visual
                 if escalated:
                     if attempt["result"] is None:
                         _fail(f"Routed row lacks cascade_result for {question_id}")
+                    if not attempt["multimodal_requests"]:
+                        _fail(f"Routed row lacks a multimodal llm_request for {question_id}")
                     selected = attempt["result"]["selected"]
                     if (selected == "abstention") != (row["answer_value"] == BLANK):
                         _fail(f"cascade_result contradicts row for {question_id}")
-                elif attempt["result"] is not None:
-                    _fail(f"cascade_result on non-escalated question {question_id}")
+                else:
+                    if row["answer_value"] == BLANK:
+                        _fail(f"Non-routed row is an abstention for {question_id}")
+                    if attempt["result"] is not None:
+                        _fail(f"cascade_result on non-escalated question {question_id}")
                 row_events[question_id] = row
                 attempt["row"] = row
                 active.pop(question_id, None)
@@ -249,6 +281,7 @@ def check_trace(trace, predictions, questions_path, metadata_path, index, visual
             "cascade_results": dict(results),
             "stage_calls": dict(stage_calls),
             "stage_detail": dict(stage_detail),
+            "stage_usage": {stage: dict(totals) for stage, totals in stage_usage.items()},
             "usage": dict(usage),
             "usage_missing": usage_missing,
         },
@@ -272,6 +305,19 @@ def main():
     parser.add_argument("--trace", type=Path, required=True)
     parser.add_argument("--output", type=Path)
     args = parser.parse_args()
+    if args.output:
+        output = args.output.resolve()
+        inputs = {
+            "questions": args.questions,
+            "metadata": args.metadata,
+            "index": args.index,
+            "visual index": args.visual_index,
+            "predictions": args.predictions,
+            "trace": args.trace,
+        }
+        for label, path in inputs.items():
+            if output == path.resolve():
+                raise ValueError(f"--output must not overwrite the {label} input")
     summary = check_trace(
         args.trace, args.predictions, args.questions, args.metadata,
         args.index, args.visual_index,
