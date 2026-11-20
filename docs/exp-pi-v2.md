@@ -220,4 +220,16 @@ solves **37/41 (90.24%)** of the train questions, versus 35/41 and 36/41
 individually — i.e. the two modes fail on partly disjoint questions, making a
 routing/ensemble strategy a natural next step.
 
+## 6. Reproduction
 
+Use the original v1 index and the shared Node dependencies. Run both
+configurations with separate output directories.
+
+```bash
+npm ci --prefix pi_rag
+python3 -m wattbot index
+python3 -m wattbot.pi_agent_v2 --split train --workers 2 --thinking false \
+  --output-dir outputs/pi-rag-v2/thinking-off/train
+python3 -m wattbot.pi_agent_v2 --split train --workers 2 --thinking true \
+  --output-dir outputs/pi-rag-v2/thinking-on/train
+```

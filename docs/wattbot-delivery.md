@@ -59,6 +59,8 @@ WattBot 根据 32 份能源、碳排放和可持续性相关文档回答问题�
 - 交付 CSV 位于 `outputs/wattbot-final/candidate/submission.csv`。其 SHA-256 为 `006a28dedea4d1a1216c0ebd91ae9372a417b21c3271509d4e3e13a316aa2222`。
 - 完整运行记录位于同目录的 `trace.jsonl`。独立验收结果位于 `outputs/wattbot-final/acceptance/`。
 
+同一份 CSV 于 2026 年 11 月 20 日通过 WattBot 2025 的赛后通道提交，编号为 `58587706`。Kaggle 返回公开榜 **0.858** 和私有榜 **0.815**。 [Kaggle 提交记录](https://www.kaggle.com/competitions/WattBot2025/submissions)
+
 ## 实验口径
 
 41 道有标签训练题用于开发和方案对比。加权分由答案值（75%）、引用集合 Jaccard（15%）和拒答判断（10%）组成。数值按本地评分器的 ±0.1% 相对误差判定，其余规则见项目评分实现。282 道无标签测试题用于验证全量运行、输出格式和调度开销。
@@ -81,11 +83,11 @@ WattBot 根据 32 份能源、碳排放和可持续性相关文档回答问题�
 | --- | --- | ---: | ---: | --- |
 | 原 Chunk RAG | BM25 召回正文块与表格行 | 0.7604 | 12,227 | [索引对照](exp-parser-fix.md#4-end-to-end-41-question-train-evaluation) |
 | 清洗版 RAG | 版面表格索引、单位换算和证据核验 | 0.8287 | 9,199 | [索引对照](exp-parser-fix.md#4-end-to-end-41-question-train-evaluation) |
-| 多跳检索 | 上下文增强索引、混合召回、重排与迭代补检 | 0.7988 | 9,271 | `2bccef0` 中的 `docs/exp-multihop-rag.md` |
+| 多跳检索 | 上下文增强索引、混合召回、重排与迭代补检 | 0.7988 | 9,271 | [多跳检索实验](exp-multihop-rag.md) |
 | 多模态单跑 | 文本和按需看图 | 0.8354 | 12,101 | `dba59cf` 与 AGY 的 `multimodal/train-mode2` 产物 |
-| Pi v2 Thinking off | 工具调用、受限计算和补检 | 0.8628 | 23,218 | `4251ab5` 中的 `docs/exp-pi-v2.md` |
-| Pi v2 Thinking on | 保留工具流程并启用推理 | 0.8866 | 40,414 | `4251ab5` 中的 `docs/exp-pi-v2.md` |
-| 两阶段文档路由 | 文档卡片做路由，再精读选中的文档 | 0.8951 | 84,975 | `a0e05c9` 中的 `docs/exp-doc-routing.md` |
+| Pi v2 Thinking off | 工具调用、受限计算和补检 | 0.8628 | 23,218 | [Pi v2 消融](exp-pi-v2.md) |
+| Pi v2 Thinking on | 保留工具流程并启用推理 | 0.8866 | 40,414 | [Pi v2 消融](exp-pi-v2.md) |
+| 两阶段文档路由 | 文档卡片做路由，再精读选中的文档 | 0.8951 | 84,975 | [文档路由实验](exp-doc-routing.md) |
 | 历史 Full-Context 级联 | Flash RAG 和 Pi 首轮，困难题升级全上下文 | 0.8698 | 223,486 | [历史级联实验](exp-ensemble.md#2-41-question-train-accuracytoken-pareto-frontier) |
 
 清洗索引提供了成本较低的文本主路径。文档路由与 Pi v2 Thinking 在开发题上的分数更高，适合作为精度与开销的参照。只按拒答升级时，后备模型只能改动第一阶段拒答的题，文本阶段已作答但答错的题需要不同的检测信号。

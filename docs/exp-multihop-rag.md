@@ -118,13 +118,23 @@ Source: `outputs/multihop-retrieval/train/token-usage.json`.
 
 ```bash
 # Build the contextualized v2 index
-python3 -m wattbot.multihop_rag index
+python3 -m wattbot.multihop_rag index \
+  --metadata data/raw/metadata.csv --docs data/docs \
+  --output outputs/multihop-retrieval/contextual-index.json
 
 # Retrieval-only benchmark (zero LLM calls, 39 answerable train questions)
-python3 -m wattbot.multihop_rag benchmark-retrieval
+python3 -m wattbot.multihop_rag benchmark-retrieval \
+  --questions data/raw/train_QA.csv --metadata data/raw/metadata.csv \
+  --index outputs/multihop-retrieval/contextual-index.json \
+  --v1-index data/processed/wattbot-index.json \
+  --embed-model BAAI/bge-small-en-v1.5
 
 # Full end-to-end run over the train set
-python3 -m wattbot.multihop_rag run --split train --output outputs/multihop-retrieval/train
+python3 -m wattbot.multihop_rag run \
+  --questions data/raw/train_QA.csv --metadata data/raw/metadata.csv \
+  --index outputs/multihop-retrieval/contextual-index.json \
+  --output-dir outputs/multihop-retrieval/train \
+  --embed-model BAAI/bge-small-en-v1.5 --workers 2
 
 # Unit tests
 python3 -m unittest discover -s tests

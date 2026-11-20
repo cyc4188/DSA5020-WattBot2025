@@ -24,12 +24,34 @@ This project is also the final assignment for DSA5020.
 ## Repository layout
 
 ```
+wattbot/           Python inference modules, shared retrieval, and scoring
+wattbot/baselines/ direct and full-context baselines
+pi_rag/            Node bridges for the Pi agents
+docs/              delivery instructions and experiment records
+tests/             unit and integration tests
 data/raw/          competition CSVs (metadata.csv, train_QA.csv, test_Q.csv)
 data/docs/         downloaded source PDFs (one per metadata.csv id)
 data/related/      curated retrieval / agentic-RAG reference papers (+ PDFs)
-scripts/           data download, paper collection, submission helpers
+scripts/           data preparation, experiment comparison, and submission verification
 outputs/           generated submissions and reports (git-ignored)
 ```
+
+## Method entry points
+
+Run these commands from the repository root with the project Python environment.
+Append `--help` to see the required flags. Each method writes to its own output
+directory or files.
+
+| Method | CLI entry point | Inputs and experiment notes |
+| --- | --- | --- |
+| Submitted cascade | `python -m wattbot cascade` | Clean v2 text index and v1 multimodal index. [Delivery and Kaggle results](docs/wattbot-delivery.md) |
+| Chunk RAG | `python -m wattbot run` | Uses v1 by default. Pass `--index outputs/parser-fix/wattbot-index-v2.json` for clean v2. [Index experiment](docs/exp-parser-fix.md) |
+| Standalone multimodal | `python -m wattbot.multimodal run --mode mode2-only` | Uses the v1 index and source PDFs. [Visual ablation](docs/wattbot-delivery.md#多模态消融) |
+| Document routing | `python -m wattbot.doc_routing run` | Uses document cards and extracted per-document Markdown. [Document routing experiment](docs/exp-doc-routing.md) |
+| Multihop retrieval | `python -m wattbot.multihop_rag run` | Uses its own contextual index. [Multihop experiment](docs/exp-multihop-rag.md) |
+| Pi agent | `python -m wattbot.pi_agent` or `python -m wattbot.pi_agent_v2` | Use the original v1 index and install the Node dependencies with `npm ci --prefix pi_rag`. [Pi v1](docs/wattbot-pi-rag.md) · [Pi v2](docs/exp-pi-v2.md) |
+| Ensemble and cascade replay | `python -m wattbot.ensemble` | Combines saved prediction CSVs and traces. [Ensemble experiment](docs/exp-ensemble.md) |
+| Direct and full-context baselines | `python -m wattbot.baselines.direct` or `python -m wattbot.baselines.full_context` | [Direct experiment](docs/wattbot-direct-baseline.md) · [Full-context experiment](docs/wattbot-full-context-baseline.md) |
 
 ## Data
 
