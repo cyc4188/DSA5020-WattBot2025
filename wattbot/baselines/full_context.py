@@ -7,6 +7,7 @@ from collections import defaultdict
 from pathlib import Path
 
 from wattbot.baselines.direct import ROOT, run
+from wattbot.citation_recovery import recover_evidence
 from wattbot.pipeline import BLANK, compact, load_metadata
 from wattbot.retrieval import sha256_file
 
@@ -25,7 +26,8 @@ inapplicable unit. If the corpus cannot support the answer, return
 class FullContext:
     prompt = PROMPT
 
-    def __init__(self, index_path, metadata_path):
+    def __init__(self, index_path, metadata_path, *, recover_citations=True):
+        self.recover_citations = recover_citations
         metadata = load_metadata(metadata_path)
         corpus = json.loads(index_path.read_text(encoding="utf-8"))
         if set(corpus["sources"]) != set(metadata) or any(
@@ -64,10 +66,13 @@ class FullContext:
             "pages": len(self.pages), "table_rows": self.table_rows,
             "corpus_bytes": len(self.text.encode()),
             "corpus_order": "document id ascending, page ascending",
+            "citation_recovery": self.recover_citations,
             "full_context_code_sha256": sha256_file(Path(__file__)),
         }
 
     def citations(self, reply, emit):
+        if self.recover_citations:
+            return recover_evidence(reply, self.pages, self.sources, emit)
         refs = {}
         materials = []
         evidence = reply.get("evidence")
@@ -98,12 +103,14 @@ def main():
     parser.add_argument("--output-dir", type=Path)
     parser.add_argument("--resume", action="store_true")
     parser.add_argument("--index", type=Path, default=ROOT / "data/processed/wattbot-index.json")
+    parser.add_argument("--strict-citations", action="store_true")
     args = parser.parse_args()
     if args.workers < 1 or (args.limit is not None and args.limit < 1):
         parser.error("--workers and --limit must be positive")
     label = args.split if args.limit is None else f"{args.split}-first-{args.limit}"
     output = args.output_dir or ROOT / "outputs" / "baseline-full-context" / label
-    context = FullContext(args.index, ROOT / "data/raw/metadata.csv")
+    context = FullContext(args.index, ROOT / "data/raw/metadata.csv",
+                          recover_citations=not args.strict_citations)
     run(args.split, output, args.workers, args.resume, context=context, limit=args.limit)
 
 

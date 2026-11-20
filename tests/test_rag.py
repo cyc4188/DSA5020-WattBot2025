@@ -84,7 +84,7 @@ class RagVerificationTest(unittest.TestCase):
         self.assertEqual(result["answer_value"], "2000000000")
         self.assertEqual(result["answer_unit"], "parameters")
         question["question"] = "What is its size in B parameters?"
-        self.assertEqual(submission_fields(question, row), row)
+        self.assertEqual(submission_fields(question, row), result)
 
 
 if __name__ == "__main__":
