@@ -44,7 +44,7 @@ directory or files.
 
 | Method | CLI entry point | Inputs and experiment notes |
 | --- | --- | --- |
-| Submitted cascade | `python -m wattbot cascade` | Clean v2 text index and v1 multimodal index. [Delivery and Kaggle results](docs/wattbot-delivery.md) |
+| Submitted cascade | `python -m wattbot cascade` | Clean v2 text index and v1 multimodal index. [Delivery and Kaggle results](docs/wattbot-delivery.md) · [All Kaggle test scores](docs/kaggle-test-results.md) |
 | Chunk RAG | `python -m wattbot run` | Uses v1 by default. Pass `--index outputs/parser-fix/wattbot-index-v2.json` for clean v2. [Index experiment](docs/exp-parser-fix.md) |
 | Standalone multimodal | `python -m wattbot.multimodal run --mode mode2-only` | Uses the v1 index and source PDFs. [Visual ablation](docs/wattbot-delivery.md#多模态消融) |
 | Document routing | `python -m wattbot.doc_routing run` | Uses document cards and extracted per-document Markdown. [Document routing experiment](docs/exp-doc-routing.md) |

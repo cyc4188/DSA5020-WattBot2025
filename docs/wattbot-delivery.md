@@ -59,7 +59,7 @@ WattBot 根据 32 份能源、碳排放和可持续性相关文档回答问题�
 - 交付 CSV 位于 `outputs/wattbot-final/candidate/submission.csv`。其 SHA-256 为 `006a28dedea4d1a1216c0ebd91ae9372a417b21c3271509d4e3e13a316aa2222`。
 - 完整运行记录位于同目录的 `trace.jsonl`。独立验收结果位于 `outputs/wattbot-final/acceptance/`。
 
-同一份 CSV 于 2026 年 11 月 20 日通过 WattBot 2025 的赛后通道提交，编号为 `58587706`。Kaggle 返回公开榜 **0.858** 和私有榜 **0.815**。 [Kaggle 提交记录](https://www.kaggle.com/competitions/WattBot2025/submissions)
+同一份 CSV 于 2026 年 11 月 20 日通过 WattBot 2025 的赛后通道提交，编号为 `58587706`。Kaggle 返回公开榜 **0.858** 和私有榜 **0.815**；同一次运行按 trace 还原的 Stage 1 纯文本基线（`outputs/wattbot-final/candidate/stage1_text_only.csv`，编号 `58605736`）返回公开榜 **0.848** 和私有榜 **0.768**，多模态后备在私有榜上带来 **+0.047** 提升。所有已提交方案的完整测试集对比见 [Kaggle 测试集结果汇总](kaggle-test-results.md) 与 [Kaggle 提交记录](https://www.kaggle.com/competitions/WattBot2025/submissions)。
 
 ## 实验口径
 

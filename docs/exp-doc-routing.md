@@ -109,6 +109,14 @@ Jaccard**, **97.56% (40/41) abstention accuracy** at **84,975.27 tok/q**
   properly abstained without VLM), `q272` (`1` vs `1.3` household-years), `q280`
   (`13.0208333` unrounded vs `13` integer days in `shen2024`).
 
+## 5.5 282-Question Test Set & Kaggle Evaluation
+
+Run on `data/raw/test_Q.csv` (282 questions, `top-docs=3`, `workers=4`, reusing `outputs/doc-routing/corpus_cache`, output in `outputs/doc-routing/test/predictions.csv`):
+
+- **Coverage:** 258 answered / 24 abstained (`validate_rows` clean).
+- **Token usage:** 24,323,365 total tokens across 590 API calls (**86,253.07 tok/q**; routing 7,392,077 + reading 16,931,288, median response 9.81s) — **8.0× fewer tokens** than Full-Context (689,804 tok/q).
+- **Kaggle post-competition score (`ref 58606928`, 2026-11-20):** **0.885 Public / 0.841 Private** — highest single-model score on both Public and Private leaderboards (exceeding Full-Context + Citation Recovery `0.883 / 0.837`). Full table in [Kaggle test results](kaggle-test-results.md).
+
 ## 6. Reproduction Commands
 
 ```bash

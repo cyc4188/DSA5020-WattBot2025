@@ -220,6 +220,19 @@ solves **37/41 (90.24%)** of the train questions, versus 35/41 and 36/41
 individually — i.e. the two modes fail on partly disjoint questions, making a
 routing/ensemble strategy a natural next step.
 
+### 5.5 282-Question Test Set & Kaggle Evaluation
+
+Controlled thinking ablation on `data/raw/test_Q.csv` (282 questions, `data/processed/wattbot-index.json`, `DeepSeek-V4.1-Flash`, 2026-11-20):
+
+| Configuration | Answered / Blank | Mean Tok/Q | Reasoning Tok | Tool Calls (`search`/`read`/`math`) | Kaggle Ref | Public | Private |
+| --- | ---: | ---: | ---: | --- | ---: | ---: | ---: |
+| Pi Agent v1 (baseline) | 226 / 56 | 10,786 | 0 | — | `58607853` | 0.785 | 0.735 |
+| **Pi Agent v2 `--thinking false`** | 253 / 29 | 22,929 | 0 | 219 / 58 / 109 | `58607225` | **0.873** | 0.818 |
+| **Pi Agent v2 `--thinking true`** | 253 / 29 | 43,182 | 161,629 | 428 / 95 / 84 | `58608983` | 0.870 | **0.854** |
+
+- Upgrading Pi v1 → Pi v2 (`thinking=false`) yields **+0.088 Public / +0.083 Private** (`0.785/0.735` → `0.873/0.818`).
+- Enabling `thinking=true` yields a further **+0.036 Private** (`0.818` → **0.854**, highest Private LB score across all 17 submissions), outperforming Full-Context + Citation Recovery (`0.837`) by +0.017 at **16× fewer tokens** (43.2k vs 689.8k tok/q) and Two-Stage Document Routing (`0.841`) by +0.013 at **2× fewer tokens**. Full leaderboard in [Kaggle test results](kaggle-test-results.md).
+
 ## 6. Reproduction
 
 Use the original v1 index and the shared Node dependencies. Run both

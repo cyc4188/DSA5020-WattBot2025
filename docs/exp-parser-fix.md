@@ -52,7 +52,7 @@ Replayed from `outputs/baseline-full-context/test/trace.jsonl`.
 | --- | ---: | ---: | ---: |
 | Answered questions with valid grounded citations | 206 / 259 (79.54%) | **255 / 259 (98.46%)** | **+49 questions** |
 
-**99** recovered citation events.
+**99** recovered citation events. On Kaggle post-competition evaluation (2026-11-20), the recovered test predictions (`ref 58605673`) improved Full-Context from **0.858 Public / 0.815 Private** (`ref 58605663`) to **0.883 Public / 0.837 Private** (+0.025 Public, +0.022 Private) with zero additional LLM tokens. See [Kaggle test results](kaggle-test-results.md).
 
 ## 4. End-to-End 41-Question Train Evaluation
 

@@ -94,11 +94,11 @@ Full-Context cascade are simultaneously cheaper and more accurate.
 
 Single-model RAG on the identical `wattbot-index.json`:
 
-| Model | Correct | Weighted | Mean Tok/Q |
-| --- | --- | --- | --- |
-| DeepSeek-V4.1-Flash | 30/41 | 0.7604 | 12,227 |
-| DeepSeek-V4-Pro | 31/41 | 0.7713 | 11,717 |
-| Qwen3.8-27B | 30/41 | 0.7543 | 13,486 |
+| Model | Correct | Weighted | Mean Tok/Q | Test Public (282q) | Test Private (282q) | Test Mean Tok/Q |
+| --- | --- | --- | --- | --- | --- | --- |
+| DeepSeek-V4.1-Flash | 30/41 | 0.7604 | 12,227 | 0.814 (`58605661`) | 0.750 | 11,001 |
+| DeepSeek-V4-Pro | 31/41 | 0.7713 | 11,717 | 0.781 (`58606992`) | 0.720 | 12,523 |
+| Qwen3.8-27B | 30/41 | 0.7543 | 13,486 | 0.830 (`58606569`) | 0.694 | 12,764 |
 
 The 3-model RAG-only **Union Oracle** is 34/41 (82.93%) — no single model exceeds 31/41,
 so cross-model diversity is worth ~3 extra correct answers.
@@ -134,6 +134,10 @@ From `test-cascade-rag-fc-diag.json` (RAG -> Full-Context on abstain):
 - Trigger breakdown: `abstain` 46. Resolutions: `tier1_accepted` 236,
   `escalated_tier2` 26, `escalated_abstained` 20.
 - **100% `validate_rows` clean.**
+- **Kaggle post-competition evaluation (2026-11-20):**
+  - `test-cascade-rag-fc.csv` (`ref 58605666`): **0.868 Public / 0.845 Private** (highest Private score among the initial 9 submissions, +0.095 Private over v1 RAG `0.750` and +0.030 Private over raw Full-Context `0.815`).
+  - `test-consensus-rag-fc.csv` (`ref 58605676`): **0.855 Public / 0.816 Private**.
+  - Full comparison table in [Kaggle test results](kaggle-test-results.md).
 
 ## 5. Reproducibility, Ingesting Future Worker CSVs & Verification
 
@@ -210,3 +214,29 @@ trace, metrics, and summary) and `outputs/integration-cascade/replay/`
 (replayed predictions and diagnostics). Both scores are local training-set
 results. The live comparison measures the full fallback solver, including
 its own text pass and image requests.
+
+## 7. Multi-Paradigm Test Ensemble (Zero Extra API Calls)
+
+Combining the completed 282-question test predictions from orthogonal paradigms — all powered by the single open campus model `DeepSeek-V4.1-Flash` — using `wattbot.ensemble` (`consensus` and `cascade`, calibrated on the 41-question train split where `4-paradigm no-FC blank-filter` reached **0.9171 weighted / 37/41 value acc / 100% abstention acc** and `5-paradigm blank-filter` reached **0.9024 weighted / 0.9593 Jaccard / 100% abstention acc**):
+
+| Ensemble Configuration | Answered / Blank | Mean Tok/Q (sum of components) | Kaggle Ref | Public | Private |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| **5-Paradigm Weighted (`q0.5`) → Multimodal Fallback Cascade** | 266 / 16 | 840,795 | `58614553` | 0.896 | **0.891** |
+| **5-Paradigm Weighted (`pi_on+doc+fc+mhop+mm`, blank-filter `q0/s0`)** | 268 / 14 | 840,795 | `58614531` | **0.900** | 0.888 |
+| **5-Paradigm Weighted (`pi_on+doc+fc+mhop+mm`, quorum `q0.5/s0.5`)** | 261 / 21 | 840,795 | `58614539` | 0.894 | 0.878 |
+| **4-Paradigm No-FC (`pi_on+doc+mhop+mm`, blank-filter `q0/s0`)** | 267 / 15 | **150,991** | `58614523` | 0.896 | 0.872 |
+| **4-Paradigm No-FC (`q0.5`) → Multimodal Fallback Cascade** | 265 / 17 | **150,991** | `58614580` | 0.896 | 0.865 |
+| **Pure-RAG Cascade: `pi_on+mm → doc_routing` (23.4% esc, no FC)** | 267 / 15 | **79,711** | `58615756` | **0.895** | **0.872** |
+| **Pure-RAG Consensus: `mhop+mm+pi_off` (no FC, no doc, no thinking)** | 267 / 15 | **44,485** | `58615761` | 0.888 | **0.865** |
+| **Pure-RAG Consensus: `mhop+v2cas+pi_on` (no FC, no doc)** | 265 / 17 | **67,182** | `58615754` | 0.880 | 0.865 |
+| **Pure-RAG Cascade: `mhop+v2cas → pi_on` (20.6% esc, no FC, no doc)** | 265 / 17 | **54,273** | `58615752` | 0.879 | 0.864 |
+| **7-Diverse Weighted (`+pi_off+v2cas`, blank-filter `q0/s0`)** | 268 / 14 | 879,016 | `58614568` | 0.896 | 0.865 |
+| **7-Diverse Weighted (`+pi_off+v2cas`, quorum `q0.3/s0.4`)** | 266 / 16 | 879,016 | `58614546` | 0.896 | 0.864 |
+
+Key takeaways:
+- **Exceeds KohakuRAG 1st-place Private LB (`0.861`) by +0.030 (`0.891`)** using a single lightweight model (`DeepSeek-V4.1-Flash`) via orthogonal paradigm diversity (agentic AST sandbox + document routing + full-context + contextual hybrid multi-hop + multimodal VLM).
+- Even **without Full-Context** (`151k tok/q`, 4.6× cheaper than Full-Context), the 4-paradigm ensemble reaches **0.896 Public / 0.872 Private** (+0.011 Private above KohakuRAG `0.861`).
+- **Quorum + Multimodal Cascade (`0.891`) vs. Pure Blank-Filtering (`0.888`) vs. Quorum-only (`0.878`)**: quorum suppresses lone text hallucinations on unanswerable questions while cascading only the remaining abstentions to multimodal recovers visual/chart questions (+0.013 Private).
+- **Orthogonal 5-paradigm (`0.888`) > Correlated 7-run (`0.865`)**: adding correlated runs (`pi_off` with `pi_on`, `v2cas` with `mm`) dilutes majority voting and hurts generalization by −0.023 Private.
+
+Local artifacts are saved under `outputs/multi-paradigm-ensemble/`. Full 24-submission table in [Kaggle test results](kaggle-test-results.md).

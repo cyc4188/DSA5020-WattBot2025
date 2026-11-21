@@ -114,6 +114,14 @@ Source: `outputs/multihop-retrieval/train/token-usage.json`.
 - **`verify`:** 35 calls, 27,023 prompt + 2,499 completion = **29,522 tokens**
 - **Total:** 135 calls, **380,094 tokens** (9,270.59 tokens/question, median response 6.26s)
 
+### 282-Question Test Set & Kaggle Evaluation
+
+Run on `data/raw/test_Q.csv` (282 questions, `top-k=12`, `max-rounds=3`, `BAAI/bge-small-en-v1.5` + `jinaai/jina-reranker-v1-turbo-en`, output in `outputs/multihop-retrieval/test/predictions.csv`):
+
+- **Coverage:** 249 answered / 33 abstained (`validate_rows` clean).
+- **Token usage:** 2,455,691 total tokens across 912 API calls (**8,708.12 tok/q**, median response 5.16s).
+- **Kaggle post-competition score (`ref 58607220`, 2026-11-20):** **0.852 Public / 0.825 Private** — strongest low-budget (<10k tok/q) system on Private LB, outperforming raw Full-Context (`0.815`) at **79× fewer tokens** and Clean-index v2 + Multimodal (`0.815`) at nearly half the token cost. Full table in [Kaggle test results](kaggle-test-results.md).
+
 ## 5. Reproducibility Commands
 
 ```bash

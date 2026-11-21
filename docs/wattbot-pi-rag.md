@@ -78,3 +78,11 @@ Pi 的区间输出统一为 `[low,high]`。数据集命名题在通过引文确�
 字段语义回归测试已通过。两次 41 题 API 复测均因校园网关返回 HTTP 429 未完成。一次只跑一道题的定向重试覆盖了 `q102`、`q230`、`q246`，三题均在得到有效模型响应前失败，本轮没有可用的新准确率。全量失败 trace 保存在 `outputs/pi-rag/pi/train-field-semantics/` 和 `outputs/pi-rag/pi/train-field-semantics-retry/`，定向重试保存在 `outputs/pi-rag/pi/field-semantics-targeted.jsonl`。
 
 校园 API 恢复后，以 2 个 worker 重跑完整训练集并通过 trace 回放。三道目标判断题 `q102`、`q230`、`q246` 均作答为 `0` 并得分。相比上一轮 29/41，本轮为 31/41（75.61%），本地加权分从 0.7183 升至 0.7628，误拒答从 9/39 降为 8/39。`q262` 从正确变为拒答。共 114 次 API 调用、413,014 token。新产物位于 `outputs/pi-rag/pi/train-field-semantics-retest/`。
+
+## 282 题测试集与 Kaggle 评测
+
+2026 年 11 月 20 日使用 4 个 worker 在 `data/raw/test_Q.csv` 上运行完整 282 题（产物位于 `outputs/pi-rag/pi/test/predictions.csv`，通过 `wattbot verify` 校验）：
+
+- **作答覆盖**：226 题作答 / 56 题拒答。
+- **Token 开销**：总计 3,041,665 tokens（均耗 **10,786.0 tok/题**）。
+- **Kaggle 赛后评测（Ref `58607853`）**：Public **0.785** / Private **0.735**（对照：Pi v2 Thinking off 升至 `0.873 / 0.818`，完整汇总见 [Kaggle 测试集结果汇总](kaggle-test-results.md)）。
