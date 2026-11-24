@@ -239,4 +239,4 @@ Key takeaways:
 - **Quorum + Multimodal Cascade (`0.891`) vs. Pure Blank-Filtering (`0.888`) vs. Quorum-only (`0.878`)**: quorum suppresses lone text hallucinations on unanswerable questions while cascading only the remaining abstentions to multimodal recovers visual/chart questions (+0.013 Private).
 - **Orthogonal 5-paradigm (`0.888`) > Correlated 7-run (`0.865`)**: adding correlated runs (`pi_off` with `pi_on`, `v2cas` with `mm`) dilutes majority voting and hurts generalization by −0.023 Private.
 
-Local artifacts are saved under `outputs/multi-paradigm-ensemble/`. Full 24-submission table in [Kaggle test results](kaggle-test-results.md).
+Local artifacts are saved under `outputs/multi-paradigm-ensemble/`. Full 32-submission table in [Kaggle test results](kaggle-test-results.md).

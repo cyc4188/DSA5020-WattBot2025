@@ -80,7 +80,7 @@ def make_fig1_architecture():
                 fontsize=7.1, fontweight="bold", color=C_GRAY, zorder=2)
 
     box(2.2, 23.0, 17.7, 10.0, "32 PDFs (641 pp.)",
-        "Layout-Aware Clean Index\nWord-bbox tables + Markdown\nNFKC & de-hyphenation",
+        "Hybrid Index (v1 / Clean v2)\nWord-bbox tables + Markdown\npymupdf4llm reader, NFKC",
         fc="#FFFFFF", ec=C_NAVY)
     box(2.2, 11.8, 17.7, 9.2, "Visual & Page Catalog",
         "Figure/table page detector\nOn-demand 180 DPI render",
@@ -131,17 +131,17 @@ def make_fig2_pareto():
     points = [
         (10786, 0.735, "Pi v1", "baseline", 7, -4, "left"),
         (11001, 0.750, "v1 Chunk RAG", "baseline", 7, 2, "left"),
-        (12848, 0.807, "Multimodal", "single", -6, -12, "right"),
+        (12848, 0.807, "Multimodal", "single", 9, -20, "left"),
         (15292, 0.815, "v2+MM Casc.", "single", 7, -11, "left"),
-        (8708,  0.825, "Multi-hop RAG\n(8.7k)", "pareto", 2, 18, "center"),
+        (8708,  0.825, "Multi-hop RAG\n(8.7k)", "pareto", -2, 42, "left"),
         (22929, 0.818, "Pi v2 (off)", "single", 8, 3, "left"),
-        (43182, 0.854, "Pi v2 (Think)", "pareto", -8, -11, "right"),
-        (44485, 0.865, "Pure-RAG 3-way\n(44.5k, no Think)", "pareto", -8, 16, "right"),
-        (79711, 0.872, "Main Pure-RAG\nCascade (79.7k)", "main", 2, 19, "center"),
-        (86253, 0.841, "Doc Routing", "single", 7, -10, "left"),
-        (125557, 0.845, "v1->FC Casc.", "fc", 8, 4, "left"),
+        (43182, 0.854, "Pi v2 (Think)", "pareto", 9, 2, "left"),
+        (44485, 0.865, "Pure-RAG 3-way\n(44.5k, no Think)", "pareto", -10, 32, "right"),
+        (79711, 0.872, "Main Pure-RAG\nCascade (79.7k)", "main", 8, 19, "center"),
+        (86253, 0.841, "Doc Routing", "single", -6, -10, "right"),
+        (125557, 0.845, "v1->FC Casc.", "fc", 6, -10, "left"),
         (689804, 0.815, "FC (raw)", "fc", -8, -4, "right"),
-        (689804, 0.837, "FC + Recov.", "fc", -8, 3, "right"),
+        (689804, 0.837, "FC + Recov.", "fc", -8, 6, "right"),
         (840795, 0.891, "5-Par.+FC\nCeiling (841k)", "ceiling", -10, 2, "right"),
     ]
 
@@ -247,7 +247,8 @@ def make_fig3_ablations():
         for rect in b2:
             h = rect.get_height()
             ax.text(rect.get_x() + rect.get_width() / 2, h + 0.005, f"{h:.3f}",
-                    ha="center", va="bottom", fontsize=5.8, fontweight="bold", color=C_NAVY, rotation=90)
+                    ha="center", va="bottom", fontsize=5.8, fontweight="bold", color=C_NAVY, rotation=90,
+                    bbox=dict(boxstyle="round,pad=0.08", fc="white", ec="none", alpha=0.75))
 
     axes[0].set_ylabel("Kaggle Weighted Score (282 Qs)")
     axes[0].legend(loc="upper left", frameon=True, framealpha=0.94, edgecolor="#DDDDDD",
@@ -260,7 +261,7 @@ def make_fig3_ablations():
 
 def make_fig4_cost_diversity():
     """Token costs and pairwise answer agreement on the 282-question test set."""
-    fig = plt.figure(figsize=(7.0, 2.28))
+    fig = plt.figure(figsize=(7.0, 1.60))
     grid = fig.add_gridspec(1, 2, width_ratios=[1.28, 1.0],
                            left=0.18, right=0.99, bottom=0.24, top=0.87, wspace=0.29)
     cost_grid = grid[0].subgridspec(1, 2, width_ratios=[1.8, 1], wspace=0.06)

@@ -17,7 +17,7 @@ from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
-from wattbot.deepseek import setting
+from wattbot.deepseek import CAMPUS_BASE, setting
 from wattbot.pipeline import (  # noqa: F401 - re-exported pipeline API
     ANSWER, BLANK, COLUMNS, EVIDENCE_FIELDS, PLAN, VERIFY, abstention, compact,
     form_candidate, load_metadata, model_value, read_csv, required_text,
@@ -60,19 +60,40 @@ them. If no substantive visual exists return {"has_substantive_visual": false, "
 
 
 def load_provider_config(provider=DEFAULT_PROVIDER):
-    """Return (base_url, api_key) for an OpenCode provider. Never echo the key."""
+    """Return (base_url, api_key) for an OpenCode provider. Never echo the key.
+
+    The default campus provider is also configurable purely through the
+    environment, so a fresh checkout with ``HKUSTGZ_AIGC_API_KEY`` in the
+    environment or ``.env`` works without a ``~/.config/opencode`` file.
+    """
     config_root = Path(os.environ.get("XDG_CONFIG_HOME") or Path.home() / ".config")
     config_path = config_root / "opencode" / "opencode.json"
-    if not config_path.is_file():
-        raise ValueError(f"No OpenCode configuration found for {provider}")
-    try:
-        options = json.loads(config_path.read_text(encoding="utf-8"))["provider"][provider]["options"]
-    except (KeyError, TypeError, json.JSONDecodeError) as error:
-        raise ValueError(f"Invalid OpenCode configuration for {provider}") from error
-    base_url = str(options.get("baseURL") or "").rstrip("/")
-    key = options.get("apiKey")
+    options = {}
+    if config_path.is_file():
+        try:
+            options = json.loads(config_path.read_text(encoding="utf-8"))["provider"][provider]["options"]
+        except (KeyError, TypeError, json.JSONDecodeError) as error:
+            if provider != DEFAULT_PROVIDER:
+                raise ValueError(f"Invalid OpenCode configuration for {provider}") from error
+            options = {}
+    if not isinstance(options, dict):
+        options = {}
+
     if provider == DEFAULT_PROVIDER:
-        key = setting("HKUSTGZ_AIGC_API_KEY") or key
+        key = setting("HKUSTGZ_AIGC_API_KEY") or options.get("apiKey")
+        if not key:
+            raise ValueError(
+                f"No API key found for {provider}: set HKUSTGZ_AIGC_API_KEY "
+                f"(environment or .env) or configure {config_path}")
+        base_url = str(
+            setting("HKUSTGZ_AIGC_BASE_URL") or options.get("baseURL") or CAMPUS_BASE
+        ).rstrip("/")
+    else:
+        if not config_path.is_file():
+            raise ValueError(f"No OpenCode configuration found for {provider}")
+        base_url = str(options.get("baseURL") or "").rstrip("/")
+        key = options.get("apiKey")
+
     if not base_url or not isinstance(key, str) or not key:
         raise ValueError(f"Configure baseURL and apiKey for {provider}")
     return base_url, key

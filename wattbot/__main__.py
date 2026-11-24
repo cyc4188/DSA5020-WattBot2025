@@ -192,7 +192,16 @@ def main():
                 command.add_argument("--vision-provider", default="hkustgz-aigc")
         elif name == "score":
             command.add_argument("--metrics", type=Path)
+    pure = commands.add_parser(
+        "pure-rag-cascade",
+        help="Run the online two-tier Pure-RAG Difficulty-Aware Cascade")
+    from .pure_rag_cascade import add_arguments as add_pure_cascade_arguments
+    add_pure_cascade_arguments(pure, include_metadata=False)
     args = parser.parse_args()
+    if args.command == "pure-rag-cascade":
+        from .pure_rag_cascade import run_cli
+        run_cli(args)
+        return
     metadata = load_metadata(args.metadata)
     if args.command == "index":
         count = build_index(metadata, args.docs, args.index)

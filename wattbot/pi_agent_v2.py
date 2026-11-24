@@ -403,7 +403,7 @@ class CleanSearchIndex:
         path = Path(path)
         self.digest = sha256_file(path)
         data = json.loads(path.read_text(encoding="utf-8"))
-        if data["version"] != 1:
+        if data.get("version") not in (1, 2):
             raise ValueError("Rebuild the index for this version of the pipeline")
         self.sources = data["sources"]
         self.pages = data["pages"]
@@ -584,7 +584,7 @@ class CleanSearchIndex:
         if node is None:
             pieces = [clean_page_text(self.pages[page_id])]
             for extra in self.nodes:
-                if extra["page_id"] == page_id and extra["kind"] == "table_row":
+                if extra["page_id"] == page_id and extra["kind"] in ("table_row", "table_block"):
                     pieces.append(extra["text"])
             text = "\n".join(piece for piece in pieces if piece)
             node = {"id": page_id, "ref_id": ref_id, "page": page, "title": title,

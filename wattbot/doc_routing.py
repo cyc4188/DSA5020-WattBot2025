@@ -1,6 +1,7 @@
 """Two-Stage Document-Level Routing and Full-Document Reading for WattBot 2025."""
 
 import argparse
+import csv
 import hashlib
 import json
 import math
@@ -1380,6 +1381,246 @@ def _make_emit(question_id: str, handle, lock: Lock):
     return emit
 
 
+def parse_question_ids(value) -> set[str] | None:
+    """Normalize a question-ID selector.
+
+    Accepts ``None``, an iterable of IDs, a comma-separated string, or a path to
+    a text/CSV file containing IDs.  Returns ``None`` when no selector is given.
+    """
+    if value in (None, ""):
+        return None
+    if isinstance(value, (set, frozenset)):
+        return {str(item).strip() for item in value if str(item).strip()} or None
+    if isinstance(value, (list, tuple)):
+        return {str(item).strip() for item in value if str(item).strip()} or None
+    text = str(value).strip()
+    if not text:
+        return None
+    path = Path(text)
+    if path.is_file():
+        raw = path.read_text(encoding="utf-8")
+        if path.suffix.casefold() == ".csv":
+            items: list[str] = []
+            for index, row in enumerate(csv.reader(raw.splitlines())):
+                if not row:
+                    continue
+                first = row[0].strip()
+                if index == 0 and first.casefold() in {"id", "question_id", "qid"}:
+                    continue
+                items.append(first)
+        else:
+            items = [part for line in raw.splitlines() for part in line.split(",")]
+        result = {item.strip().strip("\"'") for item in items if item.strip()}
+        return result or None
+    result = {part.strip() for part in text.split(",") if part.strip()}
+    return result or None
+
+
+def filter_questions(questions: list[dict], question_ids=None) -> list[dict]:
+    """Restrict ``questions`` to ``question_ids`` while preserving input order."""
+    ids = parse_question_ids(question_ids)
+    if ids is None:
+        return list(questions)
+    known = {str(question["id"]) for question in questions}
+    missing = sorted(ids - known)
+    if missing:
+        raise ValueError(f"Requested question IDs are not present: {missing[:5]}")
+    return [question for question in questions if str(question["id"]) in ids]
+
+
+def run_doc_routing_subset(
+    questions: list[dict],
+    metadata: dict,
+    *,
+    corpus: dict | None = None,
+    cards: dict | None = None,
+    client=None,
+    output_dir: Path,
+    docs: Path = ROOT / "data/docs",
+    cache_dir: Path = ROOT / "outputs/doc-routing/corpus_cache",
+    top_docs: int = 3,
+    backend: str = "hkustgz",
+    workers: int = 2,
+    resume: bool = False,
+    question_ids=None,
+    gold_rows: list[dict] | None = None,
+    questions_path: Path | None = None,
+    no_llm_cards: bool = False,
+    force_cards: bool = False,
+) -> tuple[list[dict], dict]:
+    """Run document routing on a (possibly filtered) question subset.
+
+    This is the programmatic entry point used by the online Pure-RAG cascade.
+    It builds the markdown corpus and document cards when they are not supplied,
+    reuses existing on-disk artifacts, and returns the ordered prediction rows
+    together with a JSON-serializable summary.
+    """
+    questions = filter_questions(questions, question_ids)
+    output_dir = Path(output_dir)
+    if not questions:
+        return [], {
+            "rows": 0,
+            "answered": 0,
+            "abstained": 0,
+            "token_usage": {},
+            "question_ids": [],
+        }
+
+    if corpus is None:
+        corpus = build_markdown_corpus(metadata, Path(docs), Path(cache_dir), force=False)
+    if cards is None:
+        cards = build_document_cards(
+            corpus,
+            Path(cache_dir),
+            client=client,
+            use_llm=not no_llm_cards,
+            workers=workers,
+            force=force_cards,
+        )
+    if client is None:
+        client = ResilientClient(DeepSeek(backend, timeout=180, transport_attempts=4))
+
+    router = HybridDocumentRouter(corpus, cards)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    config_path = output_dir / "config.json"
+    trace_path = output_dir / "trace.jsonl"
+    predictions_path = output_dir / "predictions.csv"
+    token_usage_path = output_dir / "token-usage.json"
+    summary_path = output_dir / "summary.json"
+    metrics_path = output_dir / "metrics.json"
+
+    manifest = {
+        "method": "doc_routing",
+        "questions_file": str(questions_path) if questions_path else None,
+        "questions_sha256": hashlib.sha256(
+            (questions_path.read_bytes() if questions_path else json.dumps(
+                [str(question["id"]) for question in questions], sort_keys=True
+            ).encode("utf-8"))
+        ).hexdigest(),
+        "questions_count": len(questions),
+        "top_docs": top_docs,
+        "backend": backend,
+        "model": getattr(client, "model", None) or backend,
+        "corpus_sha256": hashlib.sha256(
+            json.dumps(corpus, ensure_ascii=False, sort_keys=True, default=str).encode("utf-8")
+        ).hexdigest(),
+        "cards_sha256": hashlib.sha256(
+            json.dumps(cards, ensure_ascii=False, sort_keys=True, default=str).encode("utf-8")
+        ).hexdigest(),
+        "code_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
+    }
+
+    completed_rows: dict = {}
+    if resume:
+        if not config_path.exists():
+            raise FileNotFoundError(str(config_path))
+        existing = json.loads(config_path.read_text(encoding="utf-8"))
+        if existing != manifest:
+            raise ValueError("config.json does not match current manifest")
+        if trace_path.exists():
+            for line in trace_path.read_text(encoding="utf-8").splitlines():
+                if not line.strip():
+                    continue
+                entry = json.loads(line)
+                if entry.get("event") == "row" and isinstance(entry.get("row"), dict):
+                    completed_rows[entry["question_id"]] = entry["row"]
+    else:
+        if trace_path.exists():
+            raise FileExistsError(str(trace_path))
+        config_path.write_text(
+            json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
+
+    pending = [question for question in questions if question["id"] not in completed_rows]
+    lock = Lock()
+    with trace_path.open("a", encoding="utf-8") as handle:
+        handle.write(
+            json.dumps(
+                {
+                    "timestamp": _now(),
+                    "event": "run_resume" if resume else "run_start",
+                    "question_id": None,
+                },
+                ensure_ascii=False,
+            )
+            + "\n"
+        )
+        handle.flush()
+
+        def _run_one(question):
+            emit = _make_emit(question["id"], handle, lock)
+            row = solve_question(question, router, client, emit, top_docs=top_docs)
+            validate_rows(COLUMNS, [row], [question], metadata)
+            emit("row", row=row)
+            return question["id"], row
+
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            for qid, row in pool.map(_run_one, pending):
+                completed_rows[qid] = row
+
+    ordered = [completed_rows[question["id"]] for question in questions]
+    validate_rows(COLUMNS, ordered, questions, metadata)
+    atomic_csv(predictions_path, ordered)
+
+    token_usage = summarize_token_usage(trace_path)
+    token_usage_path.write_text(
+        json.dumps(token_usage, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+
+    answered = sum(
+        1 for row in ordered if str(row.get("answer_value", "")).strip() not in {"", BLANK}
+    )
+    summary = {
+        "rows": len(ordered),
+        "answered": answered,
+        "abstained": len(ordered) - answered,
+        "predictions_sha256": hashlib.sha256(predictions_path.read_bytes()).hexdigest(),
+        "token_usage": token_usage,
+        "question_ids": [question["id"] for question in questions],
+    }
+
+    if gold_rows and _has_gold_labels(gold_rows):
+        gold_by_qid = {row["id"]: row for row in gold_rows}
+        ordered_gold = [gold_by_qid.get(question["id"], {}) for question in questions]
+        if all(ordered_gold):
+            metrics = evaluate(ordered, ordered_gold)
+            records_by_qid: dict = {}
+            if trace_path.exists():
+                for line in trace_path.read_text(encoding="utf-8").splitlines():
+                    if not line.strip():
+                        continue
+                    entry = json.loads(line)
+                    if entry.get("event") == "doc_routing":
+                        qid = entry.get("question_id")
+                        payload = {
+                            key: value
+                            for key, value in entry.items()
+                            if key not in {"timestamp", "event", "question_id"}
+                        }
+                        records_by_qid[qid] = {
+                            "question_id": qid,
+                            "gold": gold_by_qid.get(qid),
+                            **payload,
+                        }
+            routing_records = list(records_by_qid.values())
+            metrics["stage1_router_recall"] = evaluate_router_recall(routing_records, ordered_gold)
+            metrics_path.write_text(
+                json.dumps(metrics, ensure_ascii=False, indent=2), encoding="utf-8"
+            )
+            summary.update(metrics)
+
+    summary_path.write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
+    with trace_path.open("a", encoding="utf-8") as handle:
+        handle.write(
+            json.dumps(
+                {"timestamp": _now(), "event": "run_complete", "question_id": None},
+                ensure_ascii=False,
+            )
+            + "\n"
+        )
+    return ordered, summary
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     shared = argparse.ArgumentParser(add_help=False)
@@ -1407,6 +1648,10 @@ def main() -> None:
     eval_parser.add_argument("--top-docs", type=int, default=3)
     eval_parser.add_argument("--limit", type=int)
     eval_parser.add_argument("--force-cards", action="store_true")
+    eval_parser.add_argument(
+        "--question-ids",
+        help="Comma-separated question IDs, or a text/CSV file of IDs",
+    )
 
     run_parser = subparsers.add_parser("run", parents=[shared])
     run_parser.add_argument(
@@ -1419,6 +1664,10 @@ def main() -> None:
     run_parser.add_argument("--limit", type=int)
     run_parser.add_argument("--resume", action="store_true")
     run_parser.add_argument("--force-cards", action="store_true")
+    run_parser.add_argument(
+        "--question-ids",
+        help="Comma-separated question IDs, or a text/CSV file of IDs",
+    )
 
     args = parser.parse_args()
 
@@ -1469,6 +1718,13 @@ def main() -> None:
     router = HybridDocumentRouter(corpus, cards)
     _, source_rows = read_csv(args.questions)
     active_source = source_rows[: args.limit] if args.limit else source_rows
+    selected_ids = parse_question_ids(getattr(args, "question_ids", None))
+    if selected_ids is not None:
+        present = {row["id"] for row in active_source}
+        missing = sorted(selected_ids - present)
+        if missing:
+            raise ValueError(f"Requested question IDs are not present: {missing[:5]}")
+        active_source = [row for row in active_source if row["id"] in selected_ids]
     questions = [
         {
             "id": row["id"],
@@ -1514,144 +1770,23 @@ def main() -> None:
         return
 
     if args.command == "run":
-        output_dir = args.output_dir
-        output_dir.mkdir(parents=True, exist_ok=True)
-        config_path = output_dir / "config.json"
-        trace_path = output_dir / "trace.jsonl"
-        predictions_path = output_dir / "predictions.csv"
-        token_usage_path = output_dir / "token-usage.json"
-        summary_path = output_dir / "summary.json"
-        metrics_path = output_dir / "metrics.json"
-
-        manifest = {
-            "method": "doc_routing",
-            "questions_file": str(args.questions),
-            "questions_sha256": hashlib.sha256(args.questions.read_bytes()).hexdigest(),
-            "questions_count": len(questions),
-            "top_docs": args.top_docs,
-            "backend": args.backend,
-            "model": getattr(client, "model", None) or args.backend,
-            "corpus_sha256": hashlib.sha256(
-                json.dumps(corpus, ensure_ascii=False, sort_keys=True, default=str).encode(
-                    "utf-8"
-                )
-            ).hexdigest(),
-            "cards_sha256": hashlib.sha256(
-                json.dumps(cards, ensure_ascii=False, sort_keys=True, default=str).encode(
-                    "utf-8"
-                )
-            ).hexdigest(),
-            "code_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
-        }
-
-        completed_rows: dict = {}
-        if args.resume:
-            if not config_path.exists():
-                raise FileNotFoundError(str(config_path))
-            existing = json.loads(config_path.read_text(encoding="utf-8"))
-            if existing != manifest:
-                raise ValueError("config.json does not match current manifest")
-            if trace_path.exists():
-                for line in trace_path.read_text(encoding="utf-8").splitlines():
-                    if not line.strip():
-                        continue
-                    entry = json.loads(line)
-                    if entry.get("event") == "row" and isinstance(entry.get("row"), dict):
-                        completed_rows[entry["question_id"]] = entry["row"]
-        else:
-            if trace_path.exists():
-                raise FileExistsError(str(trace_path))
-            config_path.write_text(
-                json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8"
-            )
-
-        pending = [question for question in questions if question["id"] not in completed_rows]
-        lock = Lock()
-        with trace_path.open("a", encoding="utf-8") as handle:
-            handle.write(
-                json.dumps(
-                    {
-                        "timestamp": _now(),
-                        "event": "run_resume" if args.resume else "run_start",
-                        "question_id": None,
-                    },
-                    ensure_ascii=False,
-                )
-                + "\n"
-            )
-            handle.flush()
-
-            def _run_one(question):
-                emit = _make_emit(question["id"], handle, lock)
-                row = solve_question(
-                    question, router, client, emit, top_docs=args.top_docs
-                )
-                validate_rows(COLUMNS, [row], [question], metadata)
-                emit("row", row=row)
-                return question["id"], row
-
-            with ThreadPoolExecutor(max_workers=args.workers) as pool:
-                for qid, row in pool.map(_run_one, pending):
-                    completed_rows[qid] = row
-
-        ordered = [completed_rows[question["id"]] for question in questions]
-        validate_rows(COLUMNS, ordered, questions, metadata)
-        atomic_csv(predictions_path, ordered)
-
-        token_usage = summarize_token_usage(trace_path)
-        token_usage_path.write_text(
-            json.dumps(token_usage, ensure_ascii=False, indent=2), encoding="utf-8"
+        ordered, summary = run_doc_routing_subset(
+            questions,
+            metadata,
+            corpus=corpus,
+            cards=cards,
+            client=client,
+            output_dir=args.output_dir,
+            top_docs=args.top_docs,
+            backend=args.backend,
+            workers=args.workers,
+            resume=args.resume,
+            question_ids=None,
+            gold_rows=active_source,
+            questions_path=args.questions,
+            no_llm_cards=args.no_llm_cards,
+            force_cards=args.force_cards,
         )
-
-        answered = sum(1 for row in ordered if str(row.get("answer_value", "")).strip() not in {"", BLANK})
-        summary = {
-            "rows": len(ordered),
-            "answered": answered,
-            "abstained": len(ordered) - answered,
-            "predictions_sha256": hashlib.sha256(predictions_path.read_bytes()).hexdigest(),
-            "token_usage": token_usage,
-        }
-
-        if _has_gold_labels(active_source):
-            metrics = evaluate(ordered, active_source)
-            records_by_qid: dict = {}
-            if trace_path.exists():
-                for line in trace_path.read_text(encoding="utf-8").splitlines():
-                    if not line.strip():
-                        continue
-                    entry = json.loads(line)
-                    if entry.get("event") == "doc_routing":
-                        qid = entry.get("question_id")
-                        payload = {
-                            key: value
-                            for key, value in entry.items()
-                            if key not in {"timestamp", "event", "question_id"}
-                        }
-                        records_by_qid[qid] = {
-                            "question_id": qid,
-                            "gold": gold_by_qid.get(qid),
-                            **payload,
-                        }
-            routing_records = list(records_by_qid.values())
-            metrics["stage1_router_recall"] = evaluate_router_recall(
-                routing_records, active_source
-            )
-            metrics_path.write_text(
-                json.dumps(metrics, ensure_ascii=False, indent=2), encoding="utf-8"
-            )
-            summary.update(metrics)
-
-        summary_path.write_text(
-            json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8"
-        )
-        with trace_path.open("a", encoding="utf-8") as handle:
-            handle.write(
-                json.dumps(
-                    {"timestamp": _now(), "event": "run_complete", "question_id": None},
-                    ensure_ascii=False,
-                )
-                + "\n"
-            )
         print(json.dumps(summary, ensure_ascii=False, indent=2))
 
 

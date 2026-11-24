@@ -9,12 +9,18 @@ const receive = async () => JSON.parse((await inbox.next()).value);
 const settings = await receive();
 settings.maxCalls = settings.maxCalls ?? 8;
 settings.thinking = Boolean(settings.thinking);
-const model = { id: "DeepSeek-V4.1-Flash", name: "DeepSeek Flash 1017",
+// Defaults target the campus endpoint; WATTBOT_BASE_URL / WATTBOT_MODEL let a
+// deployment point the same agent at a mirror or another compatible model.
+const modelId = process.env.WATTBOT_MODEL || "DeepSeek-V4.1-Flash";
+const baseUrl = (process.env.WATTBOT_BASE_URL || "https://aigc-api.hkust-gz.edu.cn/api/v2")
+  .replace(/\/+$/, "");
+const model = { id: modelId, name: "DeepSeek Flash 1017",
   provider: "hkustgz", api: "openai-completions",
-  baseUrl: "https://aigc-api.hkust-gz.edu.cn/api/v2",
+  baseUrl,
   input: ["text"], reasoning: Boolean(settings.thinking),
   maxTokens: settings.maxTokens || (settings.thinking ? 6144 : 2400), contextWindow: 1000000,
   cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 } };
+const acceptedModels = new Set([model.id, "DeepSeek-V4.1-Flash-1017"]);
 const text = (content) => typeof content === "string" ? content
   : content.filter(x => x.type === "text").map(x => x.text).join("\n");
 function wireMessage(message) {
@@ -95,7 +101,7 @@ function streamFn(_, context) {
         usage: body.usage, elapsed_ms: Date.now() - started, content: message?.content,
         reasoning_content: message?.reasoning_content ?? null,
         tool_calls: message?.tool_calls, finish_reason: choice?.finish_reason });
-      if (![model.id, "DeepSeek-V4.1-Flash-1017"].includes(body.model) || !message) {
+      if (!acceptedModels.has(body.model) || !message) {
         throw new Error("Unexpected model or missing response");
       }
       if (message.content) assistant.content.push({ type: "text", text: message.content });

@@ -1,5 +1,17 @@
+# Core retrieval / PDF pipeline
 PyMuPDF>=1.26,<3
 PyMuPDF4LLM>=2.1,<3
 Pillow>=10
 fastembed>=0.7,<1
 socksio>=1,<2
+
+# Numeric arrays used by dense retrieval and figure analysis
+numpy>=1.26
+
+# Optional: reporting figures and HTML scraping helpers
+matplotlib>=3.8
+beautifulsoup4>=4.12
+# Optional: faster BM25 stemming when a Rust toolchain is available
+py-rust-stemmers>=0.1
+
+# Note: pi_rag/ also requires Node.js >= 18 (checked with `node --version`).

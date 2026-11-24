@@ -26,15 +26,33 @@ This project is also the final assignment for DSA5020.
 ```
 wattbot/           Python inference modules, shared retrieval, and scoring
 wattbot/baselines/ direct and full-context baselines
-pi_rag/            Node bridges for the Pi agents
+pi_rag/            Node.js bridges for the Pi agents (Node.js >= 18)
+demo/              Interactive offline Trace Explorer + live Q&A web app
+report/            ACM-format LaTeX report sources and figures
 docs/              delivery instructions and experiment records
-tests/             unit and integration tests
+tests/             unit and integration tests (208 tests)
 data/raw/          competition CSVs (metadata.csv, train_QA.csv, test_Q.csv)
 data/docs/         downloaded source PDFs (one per metadata.csv id)
 data/related/      curated retrieval / agentic-RAG reference papers (+ PDFs)
-scripts/           data preparation, experiment comparison, and submission verification
+scripts/           data prep, experiment comparison, verification, packaging
 outputs/           generated submissions and reports (git-ignored)
+LICENSE            MIT license for the source code
 ```
+
+## Key results summary
+
+All numbers below are Kaggle test-set scores for the single open-weight model
+`DeepSeek-V4.1-Flash`. The competition winner (KohakuRAG) scored Public `0.902`
+/ Private `0.861`; see the [full 32-submission table and Pareto analysis](docs/kaggle-test-results.md).
+
+| Method | Public | Private | tok/q | Note |
+| --- | ---: | ---: | ---: | --- |
+| **4-paradigm no-FC consensus (Clean v2)** | **0.904** | 0.864 | 148.0k | Highest Public in the project, above KohakuRAG `0.902` |
+| **Pure-RAG cascade `pi_on(v2)+mm → doc`** *(main delivery)* | **0.895** | **0.871** | **77.2k** | Cheapest high-value point; 8.7× cheaper than Full-Context |
+| Pure-RAG cascade `pi_on+mm → doc` (v1 index) | 0.895 | 0.872 | 79.7k | Previous main point |
+| Pure-RAG 3-way consensus `mhop+mm+pi_off` | 0.888 | **0.865** | **44.5k** | Beats the winner's Private at 44.5k tok/q |
+| 5-paradigm `q0.5` → multimodal cascade | 0.896 | **0.891** | 840.8k | Highest Private in the project (Full-Context upper bound) |
+| *KohakuRAG (competition winner)* | *0.902* | *0.861* | — | Reference on the leaderboard |
 
 ## Method entry points
 
@@ -44,14 +62,74 @@ directory or files.
 
 | Method | CLI entry point | Inputs and experiment notes |
 | --- | --- | --- |
-| Submitted cascade | `python -m wattbot cascade` | Clean v2 text index and v1 multimodal index. [Delivery and Kaggle results](docs/wattbot-delivery.md) · [All Kaggle test scores](docs/kaggle-test-results.md) |
+| **Main Pure-RAG cascade** | `python -m wattbot pure-rag-cascade` | **Recommended delivery.** Tier-1 `Pi Agent v2 (thinking)` + multimodal, escalating only disagreed/abstained questions to Tier-2 `doc_routing`. **0.895 Public / 0.871 Private** @ 77.2k tok/q on the Clean v2 index (0.895 / 0.872 @ 79.7k with the v1 index). [Cascade design](docs/wattbot-delivery.md) · [All Kaggle test scores](docs/kaggle-test-results.md) |
+| Single-stage cascade | `python -m wattbot cascade` | Clean v2 text index → multimodal fallback on abstention (no Tier-2 routing). **0.858 / 0.815**. [Delivery notes](docs/wattbot-delivery.md) |
 | Chunk RAG | `python -m wattbot run` | Uses v1 by default. Pass `--index outputs/parser-fix/wattbot-index-v2.json` for clean v2. [Index experiment](docs/exp-parser-fix.md) |
 | Standalone multimodal | `python -m wattbot.multimodal run --mode mode2-only` | Uses the v1 index and source PDFs. [Visual ablation](docs/wattbot-delivery.md#多模态消融) |
 | Document routing | `python -m wattbot.doc_routing run` | Uses document cards and extracted per-document Markdown. [Document routing experiment](docs/exp-doc-routing.md) |
 | Multihop retrieval | `python -m wattbot.multihop_rag run` | Uses its own contextual index. [Multihop experiment](docs/exp-multihop-rag.md) |
-| Pi agent | `python -m wattbot.pi_agent` or `python -m wattbot.pi_agent_v2` | Use the original v1 index and install the Node dependencies with `npm ci --prefix pi_rag`. [Pi v1](docs/wattbot-pi-rag.md) · [Pi v2](docs/exp-pi-v2.md) |
+| Pi agent | `python -m wattbot.pi_agent` or `python -m wattbot.pi_agent_v2` | Requires Node.js >= 18; install the dependencies with `npm ci --prefix pi_rag`. [Pi v1](docs/wattbot-pi-rag.md) · [Pi v2](docs/exp-pi-v2.md) |
 | Ensemble and cascade replay | `python -m wattbot.ensemble` | Combines saved prediction CSVs and traces. [Ensemble experiment](docs/exp-ensemble.md) |
 | Direct and full-context baselines | `python -m wattbot.baselines.direct` or `python -m wattbot.baselines.full_context` | [Direct experiment](docs/wattbot-direct-baseline.md) · [Full-context experiment](docs/wattbot-full-context-baseline.md) |
+| Interactive demo | `python demo/app.py --host 127.0.0.1 --port 8501` | Offline Trace Explorer + live single-question Q&A. See [demo/README.md](demo/README.md). |
+| Submission packaging | `python3 scripts/package_dsa5020_submission.py` | Builds the graded ZIP (report PDF, code, dataset, demo outputs). |
+
+```bash
+# Main pipeline: run it end to end
+.venv/bin/python -m wattbot index                 # v1 index
+.venv/bin/python -m wattbot.clean_index           # clean v2 index
+.venv/bin/python -m wattbot pure-rag-cascade \
+  --pi-workers 4 --multimodal-workers 2 --tier2-workers 2 \
+  --output-dir outputs/pure-rag-cascade
+.venv/bin/python -m wattbot verify --output outputs/pure-rag-cascade/predictions.csv
+```
+
+## Interactive demo
+
+`demo/app.py` is a self-contained presentation app that needs only the Python
+standard library plus `pymupdf` (already in `requirements-rag.txt`). It has two
+tabs:
+
+- **Trace Explorer** — fully offline. Reads the saved cascade predictions,
+  per-stage JSONL traces and PDF corpus and renders the three-stage pipeline
+  (Pi v2 tool calls + Decimal AST sandbox, multimodal VLM with rasterised page
+  thumbnails, Tier-2 doc routing), escalation reasons, and a token-cost bar
+  against the Full-Context baseline.
+- **Live Q&A** — runs the real server-side pipeline for a custom question with a
+  selectable solver. Requires API credentials and pre-built indexes.
+
+```bash
+.venv/bin/python demo/app.py --host 127.0.0.1 --port 8501
+# open http://127.0.0.1:8501
+```
+
+See [demo/README.md](demo/README.md) for the endpoints, filter chips and
+presentation quick picks. The demo tests run in the normal unit-test suite.
+
+## Report and submission packaging
+
+The 6-page ACM-format report lives in `report/`:
+
+```bash
+cd report && tectonic main.tex        # -> report/main.pdf
+```
+
+`scripts/package_dsa5020_submission.py` assembles the graded ZIP:
+
+```bash
+python3 scripts/package_dsa5020_submission.py
+# -> outputs/DSA5020_WattBot2025_Submission.zip
+python3 scripts/package_dsa5020_submission.py --no-pdfs
+# -> lightweight archive without data/docs/*.pdf, safe for public code sharing
+```
+
+The archive contains the compiled report PDF, `report/` LaTeX sources, `code/`
+(source, tests, docs, demo), `dataset/` (competition CSVs and optionally the
+PDFs), `demo_outputs/` (verified prediction CSVs) and a generated
+`README_SUBMISSION.md`. The source code is MIT licensed (`LICENSE`); the
+competition data stays subject to its non-commercial, no-redistribution terms,
+so use `--no-pdfs` (and drop `dataset/`) before any public release.
+
 
 ## Data
 
@@ -193,7 +271,7 @@ python3 -m venv .venv
 .venv/bin/python -m wattbot run --workers 4 \
   --output outputs/submission_rag.csv --trace outputs/rag-test.jsonl
 .venv/bin/python -m wattbot verify --output outputs/submission_rag.csv
-.venv/bin/python -m unittest discover -s tests
+.venv/bin/python -m unittest discover -s tests   # 208 tests
 ```
 
 The index records source PDF hashes and per-document extraction counts. Each
@@ -234,10 +312,48 @@ required abstention. For a completed older trace, pass
 command. This produces a separate CSV and a normalization audit without
 re-running inference.
 
+## Main Pure-RAG cascade
+
+`python -m wattbot pure-rag-cascade` (also `python -m wattbot.pure_rag_cascade`)
+is the delivered system. It is fully automated and needs no Full-Context pass:
+
+1. **Tier 1A** — `Pi Agent v2` with thinking on the clean v2 index: tool calls
+   (`search_corpus`, `read_page`, `eval_math`) and a Decimal AST sandbox.
+2. **Tier 1B** — multimodal `mode2-only` VLM reads cited PDF pages when text
+   abstains or the question is explicitly visual.
+3. **Consensus gate** — when Tier-1A and Tier-1B agree, accept (fast path).
+4. **Tier 2** — `doc_routing` runs *only* on disagreed or abstained questions
+   (24.1% at test time), routing top-3 documents and re-answering with
+   adaptive expansion.
+
+```bash
+.venv/bin/python -m wattbot pure-rag-cascade \
+  --pi-workers 4 --multimodal-workers 2 --tier2-workers 2 \
+  --output-dir outputs/pure-rag-cascade
+.venv/bin/python -m wattbot verify --output outputs/pure-rag-cascade/predictions.csv
+```
+
+`--thinking` defaults to `true`; pass `--pi-index` / `--visual-index` when the
+indexes live elsewhere, `--limit` for a smoke test, and `--resume` to continue an
+interrupted run. The output directory contains:
+
+```
+predictions.csv          final 282-row submission
+diagnostics.json         per-stage tokens, escalation reasons, metrics
+tier1_pi/                Pi Agent v2 stage (predictions.csv + trace.jsonl)
+tier1_multimodal/        multimodal VLM stage (predictions.csv + trace.jsonl)
+tier2_doc_routing/       escalation-only doc-routing stage (trace.jsonl)
+```
+
 ## Clean-index RAG with multimodal fallback
 
 The [system and experiment record](docs/wattbot-delivery.md) describes the
 inference stages, evaluation protocol, and historical alternatives.
+
+> This is the earlier **single-stage** cascade (`0.858 Public / 0.815 Private`).
+> The recommended delivery pipeline is the **Pure-RAG cascade** described under
+> [Method entry points](#method-entry-points)
+> (`python -m wattbot pure-rag-cascade`, `0.895 / 0.871` @ 77.2k tok/q).
 
 `wattbot cascade` runs text RAG on the clean v2 index. If text RAG abstains,
 the question goes to the multimodal solver in `mode2-only`, which can inspect

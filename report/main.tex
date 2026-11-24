@@ -12,6 +12,11 @@
 
 \setlist[itemize]{leftmargin=1.15em, itemsep=1pt, topsep=2pt}
 \setlist[enumerate]{leftmargin=1.25em, itemsep=1pt, topsep=2pt}
+\setlength{\dbltextfloatsep}{8pt plus 2pt minus 2pt}
+\setlength{\textfloatsep}{8pt plus 2pt minus 2pt}
+\setlength{\intextsep}{6pt plus 2pt minus 2pt}
+\setlength{\abovecaptionskip}{3pt}
+\setlength{\belowcaptionskip}{0pt}
 \emergencystretch=1.6em
 
 \newcommand{\code}[1]{\texttt{\small #1}}
@@ -45,7 +50,8 @@ Question answering over technical sustainability literature demands simultaneous
 On the WattBot 2025 benchmark (32 scientific PDFs, 641 pages, 41 labeled development and 282 hidden test questions), naive chunk-based retrieval-augmented generation (RAG) fails due to corrupted PDF table extraction, arithmetic rounding errors, and visual blindness, whereas brute-force full-context prompting consumes 689.8k tokens/question without scaling to larger corpora.
 We present a fully automated, \emph{zero-full-context} \textbf{Pure-RAG Difficulty-Aware Cascade} built on a single lightweight open model (\code{DeepSeek-V4.1-Flash}).
 Our system combines (i)~layout-aware PDF parsing and citation recovery eliminating 100\% of displaced-decimal table corruptions (445$\to$0 rows), (ii)~an agentic tool-using solver (\textsc{Pi Agent v2}) equipped with hybrid search, clean Markdown page reading, a safe Python \code{Decimal} AST arithmetic sandbox bound to cited operands, and explicit reasoning chains, (iii)~an on-demand multimodal visual solver (\code{mode2-only}) rendering candidate PDF pages only when text reasoning abstains, and (iv)~a disagreement- and abstention-triggered gate escalating only 23.4\% of test queries to top-3 document routing.
-Across 28 automated Kaggle evaluations, our main Pure-RAG cascade achieves \textbf{0.895 Public / 0.872 Private} at \textbf{79.7k tokens/question}---using \textbf{8.7$\times$ fewer tokens} than raw full-context (0.858 / 0.815) while outperforming the official WattBot 2025 first-place winner KohakuRAG (0.902 / 0.861) by \textbf{+0.011 Private}.
+Across 32 automated Kaggle evaluations, our main Pure-RAG cascade achieves \textbf{0.895 Public / 0.872 Private} at \textbf{79.7k tokens/question}---using \textbf{8.7$\times$ fewer tokens} than raw full-context (0.858 / 0.815) while outperforming the official WattBot 2025 first-place winner KohakuRAG (0.902 / 0.861) by \textbf{+0.011 Private}.
+On our Clean v2 index the same cascade essentially matches this Private score (0.871 vs.\ 0.872) at 77.2k tokens/question, while a four-paradigm no-full-context ensemble reaches a project-best \textbf{0.904 Public}---above KohakuRAG's 0.902 Public with zero full-context.
 A non-thinking 3-way Pure-RAG consensus further reaches \textbf{0.888 / 0.865} at just \textbf{44.5k tokens/question} (15.5$\times$ cheaper than full-context), and an exploratory full-context-inclusive 5-paradigm ceiling reaches \textbf{0.900 Public / 0.891 Private} (+0.030 Private over first place).
 \end{abstract}
 
@@ -72,7 +78,7 @@ Rather than relying on brute-force full-context inputs or proprietary frontier e
   \item \textbf{Layout-aware indexing \& zero-token citation recovery:} A hybrid coordinate-plus-Markdown PDF indexer eliminating all 445 displaced-decimal rows and recovering 11 borderless tables, paired with an offline four-tier quote matcher restoring 98.5\% grounded citations.
   \item \textbf{Four orthogonal Pure-RAG paradigms:} Contextual multi-hop hybrid RAG (\textsc{Multi-Hop}, 8.7k tok/q), on-demand visual page reading (\textsc{Multimodal} \code{mode2-only}, 12.8k tok/q), an agentic tool-using solver with a safe \code{Decimal} AST math sandbox and thinking control (\textsc{Pi Agent v2}, 43.2k tok/q), and two-stage card-guided top-3 document routing (\textsc{Doc Routing}, 86.3k tok/q).
   \item \textbf{Difficulty-aware Pure-RAG cascade:} A calibrated arbitration framework pairing \textsc{Pi Agent v2} and \textsc{Multimodal} in Tier~1 and escalating only the 23.4\% disagreed or abstained queries to Tier-2 \textsc{Doc Routing}. With zero full-context, it reaches \textbf{0.895 Public / 0.872 Private} at \textbf{79.7k tok/q}, surpassing first-place KohakuRAG (0.861 Private) at 8.7$\times$ lower cost than full-context.
-  \item \textbf{28-submission empirical study:} End-to-end Kaggle evaluation mapping the Accuracy--Token Pareto frontier, $2\times 2$ index/modality ablations, thinking ablations, cross-model comparisons, and error taxonomies.
+  \item \textbf{32-submission empirical study:} End-to-end Kaggle evaluation mapping the Accuracy--Token Pareto frontier, $2\times 2$ index/modality ablations, thinking ablations, cross-model comparisons, and error taxonomies.
 \end{enumerate}
 Individual member contributions are detailed in Section~\ref{sec:contributions}.
 
@@ -81,7 +87,7 @@ Individual member contributions are detailed in Section~\ref{sec:contributions}.
 
 Retrieval-Augmented Generation (RAG)~\cite{lewis2020rag} grounds LLM outputs in external corpora via lexical BM25 and dense retrieval fused by Reciprocal Rank Fusion (RRF)~\cite{cormack2009rrf}. Adaptive frameworks add retrieval critique and iterative refinement, including Self-RAG~\cite{asai2024selfrag}, CRAG~\cite{yan2024crag}, MultiHop-RAG~\cite{tang2024multihoprag}, and agentic tool-using RAG~\cite{singh2025agenticrag}. For scientific PDFs, layout-aware parsing~\cite{auer2024docling} and hybrid table--text numerical QA~\cite{zhu2021tatqa} are critical bottlenecks, while VisRAG~\cite{yu2024visrag} shows that visual page retrieval recovers chart evidence missed by text extraction.
 
-Studies comparing RAG with long-context LLMs~\cite{li2024ragvslongcontext} show that hybrid routing captures long-context recall at a fraction of the compute budget. Directly on WattBot 2025, \textbf{KohakuRAG}~\cite{yeh2026kohakurag} won first place on both public (0.902) and private (0.861) leaderboards via a four-level hierarchical document tree, Jina v4 multimodal embeddings, query planning, and multi-model ensemble voting with abstention-aware blank filtering. Our work shows that even with a \emph{single} lightweight open model and zero full-context inputs, combining layout-aware parsing, executable \code{Decimal} sandboxes, on-demand vision, and difficulty-aware Pure-RAG cascading surpasses 0.861 Private (0.872 Pure-RAG; 0.891 with full-context ceiling) while establishing a sharp Accuracy--Token Pareto frontier.
+Studies comparing RAG with long-context LLMs~\cite{li2024ragvslongcontext} show that hybrid routing captures long-context recall at a fraction of the compute budget. Directly on WattBot 2025, \textbf{KohakuRAG}~\cite{yeh2026kohakurag} won first place (0.902 / 0.861) via a four-level hierarchical document tree, Jina v4 multimodal embeddings, query planning, and multi-model voting with abstention-aware blank filtering. With one lightweight open model and zero full-context inputs, our combination of layout-aware parsing, executable \code{Decimal} sandboxes, on-demand vision, and difficulty-aware cascading surpasses 0.861 Private (0.872 Pure-RAG; 0.891 with full-context ceiling).
 
 \begin{figure*}[t]
   \centering
@@ -101,7 +107,7 @@ Figure~\ref{fig:arch} depicts our primary \textbf{Pure-RAG Difficulty-Aware Casc
 \label{sec:indexing}
 
 \paragraph{Clean v2 Index (\code{wattbot.clean\_index}).}
-To fix the 53.3\% table corruption rate in the baseline v1 index, we assign PDF words inside detected \code{find\_tables()} cells by word-center coordinates rather than raw stream order, preserving decimal points and multi-level headers with units (e.g., \emph{Health Cost (million \$)}). For borderless booktabs papers (\code{strubell2019}, \code{luccioni2025b}), we fall back to \code{pymupdf4llm} Markdown tables. Each table emits both \code{table\_row} nodes and multi-row \code{table\_block} nodes (183 blocks) with nearby captions; body text applies Unicode NFKC normalization and prefix-aware line-wrap de-hyphenation.
+To fix the 53.3\% table corruption rate in the baseline v1 index, we assign PDF words inside detected \code{find\_tables()} cells by word-center coordinates rather than raw stream order, preserving decimal points and multi-level headers with units. For borderless booktabs papers (\code{strubell2019}, \code{luccioni2025b}), we fall back to \code{pymupdf4llm} Markdown tables. Each table emits both \code{table\_row} nodes and multi-row \code{table\_block} nodes (183 blocks) with nearby captions; body text applies Unicode NFKC normalization and prefix-aware line-wrap de-hyphenation.
 
 \paragraph{Offline Citation Recovery (\code{wattbot.citation\_recovery}).}
 Strict substring quote checks drop valid citations when OCR whitespace or ellipses differ from source text. Our four-tier matcher (\code{exact}, \code{token\_span}, \code{ellipsis\_segments}, and \code{token\_lcs} with a numeric-token guard) searches hierarchically across \code{same\_page}, \code{adjacent\_page}, \code{same\_doc}, and \code{corpus\_unique} at zero LLM token cost.
@@ -111,42 +117,41 @@ Strict substring quote checks drop valid citations when OCR whitespace or ellips
 
 Built on Pi Agent Core (\code{pi\_rag/agent\_v2.mjs}) bridged to Python tool executors (\code{wattbot/pi\_agent\_v2.py}), \textsc{Pi Agent v2} executes an iterative tool loop (up to 8 parallel tool calls/question):
 \begin{itemize}
-  \item \code{list\_documents()} lists all 32 papers (ID, title, page count) for cross-document lookup.
-  \item \code{search\_corpus(query, ref\_id?, top\_k?)} fuses BM25 and dense embeddings (\code{bge-small-en-v1.5}) via RRF, optionally scoped to one document.
+  \item \code{list\_documents()} lists all 32 papers for cross-document lookup.
+  \item \code{search\_corpus(query, ref\_id?, top\_k?)} fuses BM25 and dense embeddings (\code{bge-small-en-v1.5}~\cite{xiao2024bge}) via RRF, optionally scoped to one document.
   \item \code{read\_page(ref\_id, page)} renders clean Markdown tables and full page text directly from the source PDF.
-  \item \code{eval\_math(expression, named\_operands, result\_unit)} evaluates multi-step arithmetic in a restricted Python \code{ast} sandbox using exact \code{Decimal} math. Every corpus number must bind to an exact \code{node\_id} and quote (or prior \code{calculation\_id}); physical conversion constants (e.g., \code{HOURS\_PER\_DAY}, \code{LB\_PER\_KG}) are pre-registered, and submitted answers must match the bound calculation after unit conversion.
-  \item \code{submit\_answer(...)} enforces explicit boolean semantics (\code{1} supported, \code{0} contradicted, \code{is\_blank} only when unanswerable), applies canonical \code{unit\_hint} scaling, and runs an LLM evidence verifier.
+  \item \code{eval\_math(expression, named\_operands, result\_unit)} evaluates arithmetic in a restricted Python \code{ast} sandbox with exact \code{Decimal} math. Corpus numbers bind to a \code{node\_id} and quote (or prior \code{calculation\_id}); physical constants are pre-registered, and answers must match the bound calculation after unit conversion.
+  \item \code{submit\_answer(...)} enforces boolean semantics (\code{1} supported, \code{0} contradicted, \code{is\_blank} only if unanswerable), scales \code{unit\_hint} canonically, and runs an LLM evidence verifier.
 \end{itemize}
-A controlled \code{--thinking} switch toggles \code{enable\_thinking} in the API request while preserving \code{reasoning\_content} across tool turns and logging \code{reasoning\_tokens}.
+A controlled \code{--thinking} switch toggles \code{enable\_thinking} in the API request while preserving \code{reasoning\_content} across turns and logging \code{reasoning\_tokens}.
 
 \subsection{Tier-1 Path B: On-Demand Multimodal Visual Solver}
 \label{sec:multimodal}
 
-To solve chart-dependent queries without incurring vision-token overhead on text-answerable questions, \code{wattbot.multimodal} (\code{mode2-only}) first catalogs figure/table pages offline across all 32 PDFs. At inference time, it runs a fast multi-query BM25 text pass with quote verification and escalates visually \emph{only} on abstentions: up to 3 candidate PDF pages are rendered at 180~DPI and sent to the vision-capable campus model with page text, followed by visual verification over cited pages. Only 39 of 282 test queries (13.8\%) trigger vision (277 images total), keeping mean cost at 12.8k tok/q.
+To avoid vision-token overhead on text-answerable questions, \code{wattbot.multimodal} (\code{mode2-only}) first catalogs figure/table pages offline across all 32 PDFs. At inference it runs a fast multi-query BM25 pass with quote verification and escalates visually \emph{only} on abstentions: up to 3 pages are rendered at 180~DPI and sent to the vision-capable campus model with page text, then visually verified. Only 39 of 282 test queries (13.8\%) trigger vision (277 images total), keeping mean cost at 12.8k tok/q.
 
 \subsection{Tier-2 Escalation: Document Routing \& Arbitration}
 \label{sec:cascade}
 
 \paragraph{Two-Stage Document Routing (\code{wattbot.doc\_routing}).}
-Instead of sending all 32 PDFs (687k tokens), we pre-build 32 structured \emph{Document Cards} (one-time 242k tokens total) summarizing each paper's entities, authors, year aliases, models, hardware, and metrics. Stage~1 routes against all 32 cards plus page-level BM25 cues to pick the Top-3 papers; Stage~2 reads only those 3 papers in clean Markdown (86.3k tok/q---8.0$\times$ cheaper than full-context).
+Instead of sending all 32 PDFs (687k tokens), we pre-build 32 structured \emph{Document Cards} (242k tokens once) summarizing each paper's entities, authors, year aliases, models, hardware, and metrics. Stage~1 routes against all 32 cards to pick the Top-3 papers; Stage~2 reads only those 3 papers in clean Markdown (86.3k tok/q---8.0$\times$ cheaper than full-context).
 
 \paragraph{Difficulty-Aware Cascade \& Consensus (\code{wattbot.ensemble}).}
 Our arbitration engine clusters non-blank answers via complete-linkage equivalence within $\pm 0.1\%$ numeric tolerance after canonicalizing \code{[low,high]} intervals and booleans, weighting each candidate by citation validity, verifier outcomes, and executable \code{calculation\_binding}.
 In our \textbf{main Pure-RAG cascade}, Tier~1 runs \textsc{Pi Agent v2} (\code{thinking=true}) and \textsc{Multimodal} (\code{mode2-only}) in parallel. If both agree with valid citations (76.6\% of test queries), we accept immediately. Only on the remaining \textbf{23.4\%} (66/282) queries with disagreement (30) or abstention (36) does the gate invoke Tier-2 \textsc{Doc Routing} and arbitrate across all three paths via majority citation reconciliation.
 
-For ultra-low-budget deployment, we also build \textbf{Multi-Hop Contextual Hybrid RAG} (\code{wattbot.multihop\_rag}, 8.7k tok/q) pairing \code{pymupdf4llm} contextual chunks, \code{bge-small-en-v1.5} + BM25 RRF, a \code{jina-reranker-v1-turbo-en} cross-encoder, and iterative missing-fact retrieval, alongside abstention-aware blank filtering (\code{q0/s0})~\cite{yeh2026kohakurag}.
+For ultra-low-budget deployment, \textbf{Multi-Hop Contextual Hybrid RAG} (\code{wattbot.multihop\_rag}, 8.7k tok/q) pairs \code{pymupdf4llm} contextual chunks, \code{bge-small-en-v1.5} + BM25 RRF, a \code{jina-reranker} cross-encoder, and iterative missing-fact retrieval~\cite{yeh2026kohakurag}.
 
 \section{Experimental Setup and Main Results}
 \label{sec:experiments}
 
 \subsection{Experimental Protocol}
-All primary experiments run on the HKUST(GZ) AIGC campus gateway with \code{DeepSeek-V4.1-Flash} (\code{temperature=0}, JSON-mode outputs). For cross-model evaluation, we also test \code{DeepSeek-V4-Pro} and \code{Qwen3.8-27B} on the v1 index. Every test CSV passes \code{wattbot verify} (282-row ID alignment, valid metadata URLs, 5-field \code{is\_blank} checks) and is evaluated on Kaggle's post-competition Public and Private splits. Token usage is aggregated directly from server-reported API \code{usage} fields (\code{prompt\_tokens} + \code{completion\_tokens}), measuring gross token volume per question.
+All primary experiments run on the HKUST(GZ) AIGC campus gateway with \code{DeepSeek-V4.1-Flash} (\code{temperature=0}, JSON-mode outputs). For cross-model evaluation, we also test \code{DeepSeek-V4-Pro} and \code{Qwen3.8-27B} on the v1 index. Every test CSV passes \code{wattbot verify} (282-row ID alignment, valid metadata URLs, 5-field \code{is\_blank} checks) and is scored on Kaggle's Public and Private splits. Token usage is aggregated from server-reported API \code{usage} fields (\code{prompt\_tokens} + \code{completion\_tokens}).
 
 \begin{table*}[t]
   \centering
   \caption{Evaluation across baselines, single-path RAG systems, Pure-RAG cascades/ensembles, and Full-Context upper bounds on WattBot 2025 (41 train / 282 Kaggle test questions). All primary methods use a single model (\code{DeepSeek-V4.1-Flash}) unless noted. Bold marks the best score per category; \textbf{Main System} uses zero full-context.}
   \label{tab:main}
-  \vspace{-0.8em}
   \footnotesize
   \setlength{\tabcolsep}{4.5pt}
   \begin{tabular}{@{}llrrrrrr@{}}
@@ -173,19 +178,21 @@ All primary experiments run on the HKUST(GZ) AIGC campus gateway with \code{Deep
       & Two-Stage Document Routing (Top-3) & \textbf{0.8951} & 258 / 24 & 86,253 & 0.125$\times$ & \textbf{0.885} & 0.841 \\
       & Pi Agent v2 (\code{thinking=true}) & 0.8866 & 253 / 29 & 43,182 & 0.063$\times$ & 0.870 & \textbf{0.854} \\
     \midrule
-    \multirow{5}{*}{\shortstack[l]{\textbf{Pure-RAG}\\Cascades \&\\Ensembles\\(Zero FC)}}
+    \multirow{7}{*}{\shortstack[l]{\textbf{Pure-RAG}\\Cascades \&\\Ensembles\\(Zero FC)}}
       & 3-Way Consensus (\code{mhop+mm+pi\_off}, no Think) & 0.8982 & 267 / 15 & \textbf{44,485} & \textbf{0.064$\times$} & 0.888 & 0.865 \\
       & Cascade (\code{mhop+v2cas $\to$ pi\_on}, 20.6\% esc.) & 0.9171 & 265 / 17 & 54,273 & 0.079$\times$ & 0.879 & 0.864 \\
       & 3-Way Consensus (\code{mhop+v2cas+pi\_on}) & 0.9171 & 265 / 17 & 67,182 & 0.097$\times$ & 0.880 & 0.865 \\
+      & Pure-RAG Casc.\ v2 (\code{pi\_on+mm $\to$ doc}, 24.1\% esc.) & 0.9012 & 268 / 14 & 77,228 & 0.112$\times$ & 0.895 & 0.871 \\
       & \textbf{Main: Cascade (\code{pi\_on+mm $\to$ doc}, 23.4\% esc.)} & 0.8970 & 267 / 15 & 79,711 & 0.116$\times$ & 0.895 & \textbf{0.872} \\
-      & 4-Paradigm Consensus (\code{pi\_on+doc+mhop+mm}, BF) & \textbf{0.9171} & 267 / 15 & 150,991 & 0.219$\times$ & \textbf{0.896} & \textbf{0.872} \\
+      & 4-Paradigm Consensus (\code{pi\_on+doc+mhop+mm}, BF) & \textbf{0.9171} & 267 / 15 & 150,991 & 0.219$\times$ & 0.896 & \textbf{0.872} \\
+      & 4-Paradigm No-FC (\code{Clean v2} \textsc{Pi} v2, BF) & --- & 268 / 14 & 148,014 & 0.215$\times$ & \textbf{0.904} & 0.864 \\
     \midrule
     \multirow{5}{*}{\shortstack[l]{Full-Context\\Reference\\Upper Bounds}}
       & Full-Context + Offline Citation Recovery & 0.8290 & 259 / 23 & 689,804 & 1.00$\times$ & 0.883 & 0.837 \\
       & Cascade: v1 RAG $\to$ Full-Context (16.3\% esc.) & 0.8134 & 262 / 20 & 125,557 & 0.182$\times$ & 0.868 & 0.845 \\
       & 7-Run Correlated Consensus (\code{+pi\_off+v2cas}, BF) & 0.8988 & 268 / 14 & 879,016 & 1.27$\times$ & 0.896 & 0.865 \\
       & 5-Paradigm Consensus (\code{pi\_on+doc+fc+mhop+mm}, BF) & 0.9024 & 268 / 14 & 840,795 & 1.22$\times$ & \textbf{0.900} & 0.888 \\
-      & 5-Paradigm Quorum (\code{q0.5}) $\to$ Multimodal Cascade & --- & 266 / 16 & 840,795 & 1.22$\times$ & 0.896 & \textbf{0.891} \\
+      & 5-Paradigm Quorum (\code{q0.5}) $\to$ Multimodal Cascade & 0.9018 & 266 / 16 & 840,795 & 1.22$\times$ & 0.896 & \textbf{0.891} \\
     \midrule
     \textit{External Ref.} & \textit{KohakuRAG (WattBot 2025 1st Place~\cite{yeh2026kohakurag})} & --- & --- & --- & --- & \textit{0.902} & \textit{0.861} \\
     \bottomrule
@@ -196,13 +203,13 @@ All primary experiments run on the HKUST(GZ) AIGC campus gateway with \code{Deep
 \end{table*}
 
 \subsection{Main Quantitative Results}
-Table~\ref{tab:main} summarizes all 28 Kaggle evaluations, and Figure~\ref{fig:pareto} plots the Accuracy--Token Pareto frontier on the Private leaderboard:
+Table~\ref{tab:main} summarizes 26 representative configurations from our 32 Kaggle evaluations, plus the external KohakuRAG reference (full log in \code{docs/kaggle-test-results.md}), and Figure~\ref{fig:pareto} plots the Accuracy--Token Pareto frontier on the Private leaderboard:
 
 \begin{figure}[t]
   \centering
   \includegraphics[width=\columnwidth]{figures/fig2_pareto.pdf}
   \vspace{-1.5em}
-  \caption{Accuracy--Token Pareto frontier on the 282-question Kaggle Private leaderboard (zoomed to 0.715--0.912; lower baselines Direct 0.419 @ 246 tok/q and Minimal 0.175 @ 0 omitted for clarity). Pure-RAG strictly dominates Full-Context and beats KohakuRAG (0.861) from 44.5k tok/q onward.}
+  \caption{Accuracy--Token Pareto frontier on the 282-question Kaggle Private leaderboard (zoomed to 0.715--0.922; lower baselines Direct 0.419 @ 246 tok/q and Minimal 0.175 @ 0 omitted for clarity). Pure-RAG strictly dominates Full-Context and beats KohakuRAG (0.861) from 44.5k tok/q onward.}
   \label{fig:pareto}
   \vspace{-0.8em}
 \end{figure}
@@ -211,10 +218,10 @@ Table~\ref{tab:main} summarizes all 28 Kaggle evaluations, and Figure~\ref{fig:p
 Raw Full-Context burns 689.8k tok/q for 0.858 Public / 0.815 Private (0.883 / 0.837 after citation recovery). By contrast, \textsc{Multi-Hop} (\textbf{8.7k tok/q}, 79$\times$ cheaper) reaches \textbf{0.825 Private}, beating raw Full-Context. Our strongest single-path system, \textsc{Pi Agent v2} (\code{thinking=true}, \textbf{43.2k tok/q}, 16$\times$ cheaper), achieves \textbf{0.870 Public / 0.854 Private}, within 0.007 of multi-model KohakuRAG (0.861). \textsc{Doc Routing} (86.3k tok/q, 8$\times$ cheaper) achieves the highest single-path Public score (\textbf{0.885}) and 0.841 Private.
 
 \paragraph{2. Main Pure-RAG Cascade surpasses KohakuRAG without Full-Context.}
-Our main system---\code{Pi v2 (thinking=true) + Multimodal mode2-only $\to$ Doc Routing} on the 23.4\% disagreed/abstained queries---achieves \textbf{0.895 Public / 0.872 Private} at \textbf{79.7k tok/q}. It beats KohakuRAG's Private score (0.861) by \textbf{+0.011} using one lightweight open model, matches the 151k tok/q 4-paradigm consensus (0.896 / 0.872) at half the tokens, and costs less than running \textsc{Doc Routing} alone (86.3k tok/q).
+Our main system---\code{Pi v2 (thinking=true) + Multimodal mode2-only $\to$ Doc Routing} on the 23.4\% disagreed/abstained queries---achieves \textbf{0.895 Public / 0.872 Private} at \textbf{79.7k tok/q}. It beats KohakuRAG's Private score (0.861) by \textbf{+0.011}, matches the 151k tok/q 4-paradigm consensus (0.896 / 0.872) at half the tokens, and costs less than running \textsc{Doc Routing} alone (86.3k tok/q). Rebuilt end-to-end on Clean v2 with the same gate, it keeps \textbf{0.895 Public / 0.871 Private} at \textbf{77.2k tok/q} (24.1\% escalation).
 
 \paragraph{3. Ultra-low-cost Pure-RAG without Thinking or Document Routing.}
-Combining our three lightest orthogonal RAG paths (\textsc{Multi-Hop} 8.7k + \textsc{Multimodal} 12.8k + \textsc{Pi v2 thinking=false} 22.9k) requires just \textbf{44.5k tok/q} (15.5$\times$ cheaper than Full-Context) with zero thinking tokens and zero full-document reading, yet achieves \textbf{0.888 Public / 0.865 Private}---exceeding KohakuRAG (0.861) and well suited for live demos.
+Combining our three lightest orthogonal RAG paths (\textsc{Multi-Hop} 8.7k + \textsc{Multimodal} 12.8k + \textsc{Pi v2 thinking=false} 22.9k) requires just \textbf{44.5k tok/q} (15.5$\times$ cheaper than Full-Context) without thinking or full-document reads, yet achieves \textbf{0.888 Public / 0.865 Private}---exceeding KohakuRAG (0.861) and well suited for live demos.
 
 \paragraph{4. Full-Context exploratory upper bound.}
 When compute is unconstrained, adding citation-recovered Full-Context into an orthogonal 5-paradigm ensemble yields \textbf{0.900 Public / 0.888 Private} under blank filtering and \textbf{0.896 Public / 0.891 Private} (+0.030 Private over KohakuRAG) under quorum voting (\code{q0.5}) followed by multimodal fallback on the 21 remaining abstentions.
@@ -228,14 +235,22 @@ When compute is unconstrained, adding citation-recovered Full-Context into an or
   \vspace{-0.7em}
 \end{figure*}
 
+\begin{figure*}[t]
+  \centering
+  \includegraphics[width=0.97\textwidth]{figures/fig4_cost_diversity.pdf}
+  \caption{(a)~Stage-wise token cost (broken axis): Main Pure-RAG Cascade (79.7k) and 3-way consensus (44.5k) remove the 82\% Full-Context bottleneck while surpassing KohakuRAG (0.861); (b)~pairwise test agreement (282 Qs) exposing the two 90.8\% correlated pairs.}
+  \label{fig:costdiv}
+  \vspace{-0.8em}
+\end{figure*}
+
 \section{Ablation, Cost, and Error Analysis}
 \label{sec:analysis}
 
 \subsection{Index Cleaning, Multimodal 2$\times$2, and Citation Recovery}
 Table~\ref{tab:index} audits our v2 clean indexer, and Figure~\ref{fig:ablations}(a) shows the 2$\times$2 test ablation under identical \code{DeepSeek-V4.1-Flash} BM25 settings:
 \begin{itemize}
-  \item \textbf{v1 $\to$ v2 Clean Index:} Eliminating all 445 displaced-decimal rows, 497 ligatures, and 1,317 broken hyphens lifts pure-text RAG from 0.814 / 0.750 to \textbf{0.848 / 0.768} (+0.034 Pub, +0.018 Priv) while cutting train tokens 24.8\% (12.2k $\to$ 9.2k) via fewer verifier retries.
-  \item \textbf{Multimodal 2$\times$2 Gain:} Adding on-demand vision lifts v1 text to 0.854 / 0.807 (+0.057 Priv); cascading multimodal fallback after Clean v2 text abstentions (41/282 escalations, 18 recovered) reaches \textbf{0.858 / 0.815} (+0.047 Priv over Clean v2 text), beating either alone.
+  \item \textbf{v1 $\to$ v2 Clean Index:} Eliminating all 445 displaced-decimal rows, 497 ligatures, and 1,317 broken hyphens lifts pure-text RAG from 0.814 / 0.750 to \textbf{0.848 / 0.768} (+0.034 Pub, +0.018 Priv) while cutting train tokens 24.8\% (12.2k $\to$ 9.2k).
+  \item \textbf{Multimodal 2$\times$2 Gain:} Adding on-demand vision lifts v1 text to 0.854 / 0.807 (+0.057 Priv); cascading multimodal fallback after Clean v2 text abstentions (41/282 escalations, 18 recovered) reaches \textbf{0.858 / 0.815} (+0.047 Priv over Clean v2 text).
   \item \textbf{Zero-Token Citation Recovery:} Replaying our four-tier quote matcher over the Full-Context test trace restores citations on 49 answered queries (206/259 $\to$ 255/259, 98.5\%), lifting scores from 0.858 / 0.815 to \textbf{0.883 / 0.837} (+0.025 Pub, +0.022 Priv) with zero LLM calls (Figure~\ref{fig:ablations}(c)).
 \end{itemize}
 
@@ -243,7 +258,6 @@ Table~\ref{tab:index} audits our v2 clean indexer, and Figure~\ref{fig:ablations
   \centering
   \caption{Corpus index audit: v1 baseline vs.\ v2 clean index (32 PDFs, 641 pages).}
   \label{tab:index}
-  \vspace{-0.8em}
   \footnotesize
   \setlength{\tabcolsep}{4.5pt}
   \begin{tabular}{@{}lrrr@{}}
@@ -270,33 +284,27 @@ Figure~\ref{fig:ablations}(b) isolates the agentic toolchain and thinking gains 
 \subsection{Token Cost Decomposition \& Efficiency Analysis}
 Figure~\ref{fig:costdiv}(a) decomposes per-question token budgets across our Pure-RAG systems and the 5-paradigm ensemble (840,795 tok/q, 237.1M total tokens over 282 test questions):
 \begin{itemize}
-  \item \textbf{Full-Context consumes 82.0\% (194.5M tokens)}, resending the identical 687k-token corpus across all 282 test queries.
+  \item \textbf{Full-Context consumes 82.0\% (194.5M tokens)}, resending 687k tokens for all 282 test queries.
   \item \textbf{Doc Routing (10.3\%, 24.3M)} sends 32 cards ($\sim$26k tok/q) plus Top-3 full papers ($\sim$60k tok/q).
-  \item \textbf{\textsc{Pi v2 Thinking} (5.1\%, 12.2M)} spends 97.3\% on prompt tokens from multi-turn context growth (3.3 calls/q), while \textsc{Multimodal} (1.5\%, 3.6M) and \textsc{Multi-Hop} (1.0\%, 2.5M) stay highly compact.
+  \item \textbf{\textsc{Pi v2 Thinking} (5.1\%, 12.2M)} spends 97.3\% on prompt tokens from multi-turn growth (3.3 calls/q); \textsc{Multimodal} (1.5\%) and \textsc{Multi-Hop} (1.0\%) stay compact.
 \end{itemize}
-Our Pure-RAG cascade (\code{pi\_on + mm $\to$ doc\_routing}) cuts gross token volume by \textbf{90.5\%} vs.\ the 5-paradigm ensemble (841k $\to$ 79.7k) and \textbf{88.4\%} vs.\ standalone Full-Context (690k $\to$ 79.7k) while beating Full-Context by +0.035 to +0.057 Private.
+Our Pure-RAG cascade (\code{pi\_on + mm $\to$ doc\_routing}) cuts gross token volume by \textbf{90.5\%} vs.\ the 5-paradigm ensemble (841k$\to$79.7k) and \textbf{88.4\%} vs.\ Full-Context (690k$\to$79.7k), beating it by +0.035 to +0.057 Private.
 
 \subsection{Cross-Model Comparison \& Paradigm Orthogonality}
 On the v1 index, \code{DeepSeek-V4.1-Flash} (0.814 / 0.750) outperforms \code{DeepSeek-V4-Pro} (0.781 / 0.720) and \code{Qwen3.8-27B} (0.830 / 0.694) on Private LB, confirming that retrieval, parsing, and verification engineering dominate raw model scale.
 Figure~\ref{fig:ablations}(c) and Figure~\ref{fig:costdiv}(b) highlight two ensemble laws:
 (1)~\textbf{Orthogonality beats correlation:} As shown in Figure~\ref{fig:costdiv}(b), the two correlated pairs (\code{Pi-On}/\code{Pi-Off} and \code{VLM}/\code{v2+VLM}) agree on \textbf{90.8\%} of test questions, whereas orthogonal pairs (e.g., \code{Pi-On}/\code{VLM} at 82.6\%, \code{FC-Rec}/\code{VLM} at 81.6\%) diverge substantially. Adding these correlated voters into a 7-run ensemble drops Private LB from \textbf{0.888} (5 orthogonal paradigms) to \textbf{0.865} ($-0.023$).
-(2)~\textbf{Quorum + Multimodal cascade balances abstention and vision:} Quorum (\code{q0.5}, 0.878) blocks lone text hallucinations on unanswerable queries but suppresses chart answers; blank filtering (\code{q0/s0}, 0.888) recovers charts with slight hallucination risk; cascading only the 21 remaining \code{q0.5} abstentions to \code{mode2-only} (5 recoveries) reaches \textbf{0.891 Private}.
+(2)~\textbf{Quorum + Multimodal cascade balances abstention and vision:} Quorum (\code{q0.5}, 0.878) blocks lone text hallucinations on unanswerable queries but suppresses chart answers; blank filtering (\code{q0/s0}, 0.888) recovers charts with slight hallucination risk; cascading only the 21 remaining \code{q0.5} abstentions to \code{mode2-only} (5 recoveries) reaches \textbf{0.891 Private}. The reversal is quorum arithmetic: an even 4-voter pool makes \code{q0.5} demand $\ge$2 agreeing voters, suppressing valid minority answers more sharply than an odd 5-voter pool, so 4-way BF (0.872) beats 4-way quorum+MM (0.865) while 5-way quorum+MM (0.891) beats 5-way BF (0.888).
 
-\subsection{Residual Error Taxonomy}
+\subsection{Residual Error Taxonomy and Index Transfer}
 Error inspection reveals four residual failure modes:
 (1)~\emph{Chart-only metrics:} Test \code{q015}, \code{q189}, \code{q317} and train \code{q215} (\code{schwartz2019} Fig.~2) are abstained by all top text systems yet solved by \code{mode2-only};
 (2)~\emph{Prose vs.\ table precision:} On \code{q124}, prose rounds ``5.4M liters'' while Table~1 states ``5.439M'' (outside $\pm 0.1\%$);
 (3)~\emph{Integer vs.\ exact arithmetic:} On \code{q280}, dividing hours by 24 gives \code{13.0208} vs.\ gold \code{13} days (0.16\% gap);
-(4)~\emph{v1 index in \textsc{Pi v2}:} Our \textsc{Pi v2} runs queried the v1 index; migrating \textsc{Pi v2} to Clean v2 is a direct zero-architecture-change gain.
+(4)~\emph{Index cleaning is paradigm-dependent:} Moving \textsc{Pi v2} to Clean v2 cuts tokens 6.9\% (43.2k$\to$40.2k) and lifts Public 0.870$\to$0.879, while the cascade holds Private at 0.871 (vs.\ 0.872) and the 4-paradigm no-FC ensemble reaches a project-best \textbf{0.904 Public}. Because \code{read\_page()} already renders clean \code{pymupdf4llm} Markdown from the PDF, Clean v2's table repair largely duplicates that reader: single-path Private is slightly lower (0.841; on \code{q124} prose outranks the exact table cell) and Clean v2 benefits Chunk RAG most (+0.018).
 
-\begin{figure*}[t]
-  \centering
-  \includegraphics[width=0.97\textwidth]{figures/fig4_cost_diversity.pdf}
-  \vspace{-1.5em}
-  \caption{(a)~Stage-wise token cost (broken axis): Main Pure-RAG Cascade (79.7k) and 3-way consensus (44.5k) remove the 82\% Full-Context bottleneck while surpassing KohakuRAG (0.861); (b)~pairwise test agreement (282 Qs) exposing the two 90.8\% correlated pairs.}
-  \label{fig:costdiv}
-  \vspace{-0.8em}
-\end{figure*}
+\paragraph{Limitations.}
+Ablation deltas near 0.005 on our 41-question development set are within calibration noise, and all reported systems share one open model family (\code{DeepSeek-V4.1-Flash}), so cross-family generality is untested. Document Cards currently assume a 32-paper corpus; scaling to thousands of papers would require hierarchical card routing (corpus $\to$ field $\to$ venue $\to$ paper) to keep Stage-1 routing linear. Finally, the abstention and escalation thresholds are tuned on 41 train questions and may drift on a new corpus.
 
 \section{Team Contributions \& Reproducibility}
 \label{sec:contributions}
@@ -308,7 +316,6 @@ Our two-member team divided the engineering tracks evenly with joint ownership o
   \centering
   \caption{Individual contributions of each team member. (Replace bracketed placeholders with final names/roles.)}
   \label{tab:contrib}
-  \vspace{-0.8em}
   \footnotesize
   \setlength{\tabcolsep}{4pt}
   \begin{tabular}{@{} >{\raggedright\arraybackslash}p{0.24\columnwidth} p{0.71\columnwidth} @{}}
@@ -326,16 +333,17 @@ Our two-member team divided the engineering tracks evenly with joint ownership o
 \end{table}
 
 \subsection{Reproducibility and Package Organization}
-The ZIP bundles this PDF, source code (\code{wattbot/}, \code{pi\_rag/}, \code{scripts/}, \code{tests/}, \code{docs/}), datasets (\code{data/raw/}, 32 PDFs in \code{data/docs/}), verified demo CSVs, and \code{README.md}. All \textbf{176/176} unit tests pass (\code{unittest discover -s tests}). Reproducing our main cascade takes four steps:
+The submission ZIP contains the top-level report PDF; \code{code/} (\code{wattbot/}, \code{pi\_rag/}, the zero-dependency interactive \code{demo/}, \code{scripts/}, \code{tests/}, \code{docs/}, and an MIT \code{LICENSE}); \code{dataset/} (raw CSVs and the 32 PDFs under \code{docs/}); verified \code{demo\_outputs/} CSVs; and \code{report/} \LaTeX{} sources. All \textbf{208/208} unit tests pass (\code{unittest discover -s tests}). The full system runs online via \code{python -m wattbot} \code{pure-rag-cascade}, which executes both Tier-1 solvers, applies the consensus gate, and invokes Tier-2 \code{doc\_routing} \emph{only} on escalated queries. The equivalent manual replay takes four steps:
 (1)~\code{wattbot index}, \code{clean\_index}, and \code{doc\_routing build};
-(2)~\code{pi\_agent\_v2 --split test --thinking true} and \code{multimodal run --mode mode2-only};
+(2)~\code{pi\_agent\_v2} \code{--split test --thinking true} and \code{multimodal run --mode mode2-only};
 (3)~\code{doc\_routing run --top-docs 3};
 (4)~\code{ensemble cascade} (\code{pi\_on+mm $\to$ doc}) and \code{wattbot verify}.
+For live presentation, \code{demo/app.py} serves an offline Trace Explorer (saved traces and cited PDF pages, no API key) plus a Live Q\&A mode using only the Python standard library.
 
 \section{Conclusion}
 \label{sec:conclusion}
 
-High-precision scientific QA does not require full-context prompting or proprietary model ensembles. By fixing PDF table corruption, grounding math in a cited \code{Decimal} AST sandbox, invoking page vision on demand, and escalating only disagreed or abstained queries to top-3 document routing, our \textbf{Pure-RAG Cascade} reaches \textbf{0.895 Public / 0.872 Private} at \textbf{79.7k tok/q} on one lightweight open model (\code{DeepSeek-V4.1-Flash})---8.7$\times$ cheaper than full-context and +0.011 Private above KohakuRAG (0.861). Future work will move \textsc{Pi v2} to Clean v2, add native multimodal embeddings, and extend difficulty-aware routing to cross-model ensembles.
+High-precision scientific QA does not require full-context prompting or proprietary model ensembles. By fixing PDF table corruption, grounding math in a cited \code{Decimal} AST sandbox, invoking page vision on demand, and escalating only disagreed or abstained queries to top-3 document routing, our \textbf{Pure-RAG Cascade} reaches \textbf{0.895 Public / 0.872 Private} at \textbf{79.7k tok/q} on one lightweight open model (\code{DeepSeek-V4.1-Flash})---8.7$\times$ cheaper than full-context and +0.011 Private above KohakuRAG (0.861); on Clean v2, a 4-paradigm ensemble reaches a project-best \textbf{0.904 Public}. Future work will add native multimodal embeddings, hierarchical card routing for corpora far larger than 32 papers, and cross-model difficulty-aware ensembles.
 
 \bibliographystyle{ACM-Reference-Format}
 \balance
